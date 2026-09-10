@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: buurtkompas-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: buurtkompas
+      POSTGRES_PASSWORD: buurtkompas_dev
+      POSTGRES_DB: buurtkompas
+    ports:
+      - "5432:5432"
+    volumes:
+      - buurtkompas_pgdata:/var/lib/postgresql/data
+
+volumes:
+  buurtkompas_pgdata:
