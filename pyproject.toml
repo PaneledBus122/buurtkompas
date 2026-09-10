@@ -7,7 +7,10 @@ authors = [
     { name = "PaneledBus122", email = "sjlim122@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pandas>=3.0.5",
+    "requests>=2.34.2",
+]
 
 [project.scripts]
 buurtkompas = "buurtkompas:main"
