@@ -1,0 +1,43 @@
+# dbt project config for buurtkompas (Phase 3: Score).
+#
+# Drop this file in `dbt/dbt_project.yml` (the dbt project root).
+
+name: "buurtkompas"
+version: "1.0.0"
+config-version: 2
+
+profile: "buurtkompas"
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+vars:
+  # Kerncijfers wijken en buurten 2024 is currently a single-year snapshot.
+  # Centralized here so a future multi-year extractor only needs to change
+  # this one value instead of every model that filters on `year`.
+  data_year: 2024
+
+models:
+  buurtkompas:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: view
+    marts:
+      +materialized: table
+
+seeds:
+  buurtkompas:
+    indicator_direction:
+      # dbt's CSV type inference would otherwise guess `integer` for
+      # numeric-looking indicator_ids like "1014800", which breaks the
+      # join against fact_indicator.indicator_id (text) in Postgres.
+      +column_types:
+        indicator_id: text

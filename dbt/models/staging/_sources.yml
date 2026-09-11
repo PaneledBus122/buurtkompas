@@ -1,0 +1,33 @@
+version: 2
+
+sources:
+  - name: buurtkompas_raw
+    # The `public` schema is where load/loader.py (Phase 2, plain Python +
+    # SQLAlchemy Core) writes the raw extracted CBS/PDOK data. dbt treats it
+    # as an external source, never writes to it.
+    schema: public
+    tables:
+      - name: dim_region
+        description: >
+          One row per buurt (neighborhood). Geometry + the gemeente_code
+          used to partition rankings city-by-city rather than nationally.
+        columns:
+          - name: region_id
+            description: Buurtcode, e.g. "BU07721234".
+          - name: gemeente_code
+            description: Municipality code, e.g. "GM0772". Ranking partition key.
+
+      - name: dim_indicator
+        description: One row per CBS indicator, tagged with its category.
+        columns:
+          - name: indicator_id
+          - name: category
+
+      - name: fact_indicator
+        description: >
+          Long/EAV fact table: one row per (region_id, indicator_id, year).
+        columns:
+          - name: region_id
+          - name: indicator_id
+          - name: year
+          - name: value

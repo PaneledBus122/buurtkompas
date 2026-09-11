@@ -1,0 +1,10 @@
+indicator_id,direction
+D000045,lower_is_better
+D000025,lower_is_better
+D000029,lower_is_better
+D000028,lower_is_better
+ST0001,higher_is_better
+M001642,higher_is_better
+1014800,higher_is_better
+1014850_2,lower_is_better
+M000224,higher_is_better

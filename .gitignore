@@ -10,6 +10,10 @@ __pycache__/
 .Python
 build/
 data/
+dbt/.user.yml
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
 develop-eggs/
 dist/
 downloads/
