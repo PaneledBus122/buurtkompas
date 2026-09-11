@@ -19,7 +19,7 @@ MEASURES: dict[str, tuple[str, str]] = {
     "M001642": ("housing", "Gemiddelde WOZ-waarde van woningen"),
     "1014800": ("housing", "Koopwoningen (%)"),
     "1014850_2": ("housing", "Huurwoningen totaal (%)"),
-    "M000224": ("unassigned", "Gemiddeld inkomen per inwoner"),
+    "M000224": ("income", "Gemiddeld inkomen per inwoner"),
 }
 
 
