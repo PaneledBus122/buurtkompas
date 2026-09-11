@@ -2,7 +2,7 @@
 
 Long/EAV-style schema per the project plan (`eindhoven-dashboard-plan.md`):
 
-    dim_region      (region_id, region_level, name, geometry)
+    dim_region      (region_id, region_level, name, gemeente_code, geometry)
     dim_indicator   (indicator_id, category, unit, source, description)
     fact_indicator  (region_id, indicator_id, year, value, percentile_score)
 
@@ -38,6 +38,10 @@ dim_region = Table(
     Column("region_id", String, primary_key=True),  # buurtcode, e.g. "BU07721234"
     Column("region_level", String, nullable=False),  # "buurt" | "wijk" | "gemeente"
     Column("name", String, nullable=False),
+    # Needed to PARTITION BY in Phase 3 dbt ranking (rank within a city, not
+    # across the whole country) — see eindhoven-dashboard-plan.md, "Phase 3/7
+    # 스코어링 방법론". Not unique/PK on its own; many regions share one gemeente.
+    Column("gemeente_code", String, nullable=False),  # e.g. "GM0772"
     # MULTIPOLYGON (not POLYGON): CBS buurt boundaries can be non-contiguous
     # (e.g. split by a river or highway), so a plain Polygon type would
     # reject some valid buurt geometries.

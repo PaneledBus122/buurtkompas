@@ -78,9 +78,15 @@ def _reset_tables(engine: Engine) -> None:
 
 def load_dim_region(engine: Engine) -> None:
     gdf = gpd.read_file(PDOK_GEOJSON)
-    gdf = gdf.rename(columns={"buurtcode": "region_id", "buurtnaam": "name"})
+    gdf = gdf.rename(
+        columns={
+            "buurtcode": "region_id",
+            "buurtnaam": "name",
+            "gemeentecode": "gemeente_code",
+        }
+    )
     gdf["region_level"] = "buurt"
-    gdf = gdf[["region_id", "region_level", "name", "geometry"]]
+    gdf = gdf[["region_id", "region_level", "name", "gemeente_code", "geometry"]]
     gdf.to_postgis("dim_region", engine, if_exists="append", index=False)
 
 
