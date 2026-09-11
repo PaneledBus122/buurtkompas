@@ -1,0 +1,19 @@
+version: 2
+
+seeds:
+  - name: indicator_direction
+    description: >
+      Maps each CBS indicator_id to whether a higher or lower raw value is
+      "better", so int_indicator_percentile can rank consistently regardless
+      of the indicator's natural scale (e.g. distance vs. currency vs. %).
+    columns:
+      - name: indicator_id
+        tests:
+          - not_null
+          - unique
+      - name: direction
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["higher_is_better", "lower_is_better"]

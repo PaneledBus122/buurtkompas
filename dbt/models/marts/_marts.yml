@@ -1,0 +1,20 @@
+version: 2
+
+models:
+  - name: fct_category_score
+    description: >
+      One row per (region, category, year): a coverage-gated,
+      re-ranked percentile score per category, partitioned by
+      gemeente_code.
+    columns:
+      - name: region_id
+        tests:
+          - not_null
+      - name: category
+        tests:
+          - not_null
+      - name: category_score
+        description: >
+          NULL when the region didn't clear the coverage threshold for
+          this category (see model SQL). Otherwise a percent_rank in
+          [0, 1] within the region's gemeente, where 1.0 is best.

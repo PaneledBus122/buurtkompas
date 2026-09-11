@@ -1,0 +1,25 @@
+# dbt connection profile for buurtkompas.
+#
+# Not committed with real credentials in a shared/public repo scenario, but
+# since every value here already has a safe local-dev default (matching
+# docker-compose.yml) and can be overridden via env vars, this is fine to
+# commit as-is for a solo local-dev project.
+#
+# Drop this file in `dbt/profiles.yml` and point DBT_PROFILES_DIR at the
+# `dbt/` folder (see README), or copy it to `~/.dbt/profiles.yml`.
+
+buurtkompas:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DBT_PG_HOST', 'localhost') }}"
+      port: "{{ env_var('DBT_PG_PORT', '5432') | as_number }}"
+      user: "{{ env_var('DBT_PG_USER', 'buurtkompas') }}"
+      password: "{{ env_var('DBT_PG_PASSWORD', 'buurtkompas_dev') }}"
+      dbname: "{{ env_var('DBT_PG_DBNAME', 'buurtkompas') }}"
+      # Kept separate from the `public` schema, where load/loader.py writes
+      # the raw dim_region / dim_indicator / fact_indicator tables — dbt
+      # only ever reads those as a source and writes its own models here.
+      schema: analytics
+      threads: 4

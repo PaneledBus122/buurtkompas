@@ -1,0 +1,25 @@
+version: 2
+
+models:
+  - name: int_indicator_percentile
+    description: >
+      One row per (region, indicator, year) with a direction-aware
+      percentile_score in [0, 1], ranked within its gemeente_code.
+    columns:
+      - name: region_id
+        tests:
+          - not_null
+      - name: indicator_id
+        tests:
+          - not_null
+          # Catches the case this model's inner join would otherwise hide
+          # silently: a fact_indicator row for an indicator_id that has no
+          # entry in seeds/indicator_direction.csv would just disappear
+          # from the output instead of failing the build.
+          - relationships:
+              arguments:
+                to: ref('indicator_direction')
+                field: indicator_id
+      - name: percentile_score
+        tests:
+          - not_null

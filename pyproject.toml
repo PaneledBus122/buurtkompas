@@ -8,6 +8,8 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "dbt-core>=1.12.4",
+    "dbt-postgres>=1.11.0",
     "geoalchemy2>=0.20.0",
     "geopandas>=1.1.4",
     "pandas>=3.0.5",
