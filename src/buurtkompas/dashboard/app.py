@@ -84,7 +84,7 @@ def render_map(feature_collection: dict) -> None:
         map_style=pdk.map_styles.CARTO_LIGHT,
         tooltip={"text": "{name}\n{score_label}"},
     )
-    st.pydeck_chart(deck, use_container_width=True)
+    st.pydeck_chart(deck, width="stretch")
 
 
 def render_score_table(feature_collection: dict) -> None:
@@ -98,7 +98,7 @@ def render_score_table(feature_collection: dict) -> None:
     )
     st.dataframe(
         [{"Buurt": r["name"], "Score": r["score_label"]} for r in rows_sorted],
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 

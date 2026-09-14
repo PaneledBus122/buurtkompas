@@ -18,6 +18,7 @@ buurtkompas:
       user: "{{ env_var('DBT_PG_USER', 'buurtkompas') }}"
       password: "{{ env_var('DBT_PG_PASSWORD', 'buurtkompas_dev') }}"
       dbname: "{{ env_var('DBT_PG_DBNAME', 'buurtkompas') }}"
+      sslmode: "{{ env_var('DBT_PG_SSLMODE', 'prefer') }}"
       # Kept separate from the `public` schema, where load/loader.py writes
       # the raw dim_region / dim_indicator / fact_indicator tables — dbt
       # only ever reads those as a source and writes its own models here.
