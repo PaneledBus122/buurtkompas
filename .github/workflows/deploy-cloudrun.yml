@@ -1,0 +1,75 @@
+name: Deploy dashboard to Cloud Run
+
+# Builds the dashboard image and deploys it to Cloud Run whenever the
+# dashboard code or its dependencies change on main, or on demand via the
+# Actions tab. See docs/deployment.md for the one-time GCP setup this
+# workflow assumes (Artifact Registry repo, Workload Identity Federation,
+# Secret Manager secret) -- none of that is created by this workflow itself.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/buurtkompas/dashboard/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "Dockerfile"
+      - ".github/workflows/deploy-cloudrun.yml"
+  workflow_dispatch: {}
+
+env:
+  GCP_REGION: europe-west4
+  ARTIFACT_REPO: buurtkompas
+  SERVICE_NAME: buurtkompas-dashboard
+
+permissions:
+  contents: read
+  # Required for Workload Identity Federation: lets this job exchange a
+  # short-lived GitHub OIDC token for a GCP access token, so no long-lived
+  # service-account key ever has to be stored as a GitHub secret.
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+
+      - name: Build and push image
+        env:
+          IMAGE: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/dashboard
+        run: |
+          docker build -t "${IMAGE}:${{ github.sha }}" -t "${IMAGE}:latest" .
+          docker push "${IMAGE}:${{ github.sha }}"
+          docker push "${IMAGE}:latest"
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          region: ${{ env.GCP_REGION }}
+          image: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/dashboard:${{ github.sha }}
+          # DATABASE_URL (the Neon connection string) is read from Secret
+          # Manager at deploy time -- it never appears in this workflow file,
+          # in a GitHub secret, or in `gcloud run deploy --set-env-vars`
+          # (which would otherwise leave it sitting in plaintext service
+          # config/logs).
+          secrets: |
+            DATABASE_URL=buurtkompas-database-url:latest
+          flags: |
+            --allow-unauthenticated
+            --min-instances=0
+            --max-instances=2
+            --memory=512Mi
+            --cpu=1
