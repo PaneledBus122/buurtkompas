@@ -10,7 +10,7 @@ dbt/
 tests/
 docs/
 *.md
-+!README.md
+!README.md
 docker-compose.yml
 Dockerfile.airflow
 dags/
