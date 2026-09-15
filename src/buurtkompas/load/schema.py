@@ -42,6 +42,11 @@ dim_region = Table(
     # across the whole country) — see eindhoven-dashboard-plan.md, "Phase 3/7
     # 스코어링 방법론". Not unique/PK on its own; many regions share one gemeente.
     Column("gemeente_code", String, nullable=False),  # e.g. "GM0772"
+    # Resident population, from CBS 85984NED (cbs.extract_population()) —
+    # used as a normalization denominator by indicators like crimes per
+    # 1,000 residents, not itself a ranked indicator (so it lives here, not
+    # in fact_indicator). Nullable: CBS suppresses this for some buurten.
+    Column("population", Integer, nullable=True),
     # MULTIPOLYGON (not POLYGON): CBS buurt boundaries can be non-contiguous
     # (e.g. split by a river or highway), so a plain Polygon type would
     # reject some valid buurt geometries.
