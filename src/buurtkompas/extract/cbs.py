@@ -87,7 +87,7 @@ def extract_population() -> pd.DataFrame:
     population = fetch_population(region_codes)
     return pd.DataFrame(
         [
-            {"region_id": region_id, "population": value}
+            {"region_id": region_id, "population": int(value)}
             for region_id, value in population.items()
         ]
     )
