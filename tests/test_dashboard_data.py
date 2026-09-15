@@ -5,7 +5,11 @@ this targets the parts that don't).
 Drop this module in ``tests/test_dashboard_data.py``.
 """
 
-from buurtkompas.dashboard.data import build_feature_collection, compute_view_state
+from buurtkompas.dashboard.data import (
+    build_feature_collection,
+    compute_view_state,
+    merge_region_scores,
+)
 
 
 def _row(
@@ -75,3 +79,25 @@ def test_compute_view_state_handles_empty_feature_collection():
     # Falls back to a de-zoomed view of the Netherlands rather than raising
     # (e.g. ValueError from min() on an empty sequence).
     assert view["zoom"] < 10
+
+
+def test_merge_region_scores_attaches_score_by_region_id():
+    geometries = [
+        {"region_id": "BU1", "name": "Centrum", "geometry": {"type": "Point"}},
+        {"region_id": "BU2", "name": "Strijp", "geometry": {"type": "Point"}},
+    ]
+    scores = {"BU1": 0.8, "BU2": 0.2}
+
+    rows = merge_region_scores(geometries, scores)
+
+    assert rows[0]["category_score"] == 0.8
+    assert rows[1]["category_score"] == 0.2
+    assert rows[0]["name"] == "Centrum"
+
+
+def test_merge_region_scores_defaults_missing_region_to_none():
+    geometries = [{"region_id": "BU1", "name": "Centrum", "geometry": {}}]
+
+    rows = merge_region_scores(geometries, {})
+
+    assert rows[0]["category_score"] is None

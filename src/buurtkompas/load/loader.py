@@ -40,7 +40,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 from buurtkompas.load.schema import dim_indicator, dim_region, fact_indicator, metadata
@@ -105,6 +105,33 @@ def load_dim_region(engine: Engine) -> None:
         ["region_id", "region_level", "name", "gemeente_code", "population", "geometry"]
     ]
     gdf.to_postgis("dim_region", engine, if_exists="append", index=False)
+    _backfill_region_points(engine)
+
+
+def _backfill_region_points(engine: Engine) -> None:
+    """Fill dim_region.lon/lat from each buurt's geometry, one time, right
+    after the geometry load.
+
+    ST_PointOnSurface (not ST_Centroid): a centroid is the mean of all
+    boundary points and can land outside a concave or multi-part buurt
+    polygon; ST_PointOnSurface is guaranteed to fall inside it. This matters
+    because these points become Matrix API origins for the dashboard's live
+    commute-time feature (dashboard/commute.py) — an origin outside the
+    buurt would silently measure commute time from the wrong neighborhood.
+
+    Done as a Postgres-side UPDATE (not computed client-side with
+    GeoPandas/Shapely) specifically so it uses PostGIS's own
+    ST_PointOnSurface implementation, per the feature spec.
+    """
+    with engine.begin() as conn:
+        conn.execute(
+            text("""
+                update dim_region
+                set
+                    lon = ST_X(ST_PointOnSurface(geometry)),
+                    lat = ST_Y(ST_PointOnSurface(geometry))
+            """)
+        )
 
 
 def load_dim_indicator(engine: Engine, cbs_df: pd.DataFrame) -> None:
