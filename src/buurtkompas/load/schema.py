@@ -53,6 +53,14 @@ dim_region = Table(
     Column(
         "geometry", Geometry(geometry_type="MULTIPOLYGON", srid=4326), nullable=False
     ),
+    # ST_PointOnSurface(geometry), backfilled by loader.py once after the
+    # geometry load — NOT a centroid: a centroid can fall outside a concave
+    # or multi-part buurt polygon, which would send the dashboard's live
+    # commute-time feature (dashboard/commute.py) routing from a point
+    # that isn't even in the neighborhood. Nullable only because they're
+    # filled in a second pass, after the row already exists.
+    Column("lon", Float, nullable=True),
+    Column("lat", Float, nullable=True),
 )
 
 dim_indicator = Table(

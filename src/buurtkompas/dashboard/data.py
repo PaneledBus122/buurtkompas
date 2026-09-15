@@ -80,6 +80,62 @@ def fetch_region_scores(engine: Engine, category: str) -> list[dict[str, Any]]:
         ]
 
 
+def fetch_region_points(engine: Engine) -> list[dict[str, Any]]:
+    """One row per buurt: id plus its representative (lon, lat) point —
+    load/loader.py's ST_PointOnSurface-backfilled columns. Used as the
+    Matrix API's origins by the live commute-time feature
+    (dashboard/commute.py), which needs plain coordinates, not geometry.
+    """
+    query = text("select region_id, lon, lat from dim_region order by region_id")
+    with engine.connect() as conn:
+        rows = conn.execute(query)
+        return [
+            {"region_id": row.region_id, "lon": row.lon, "lat": row.lat} for row in rows
+        ]
+
+
+def fetch_region_geometries(engine: Engine) -> list[dict[str, Any]]:
+    """One row per buurt: id, name, geometry — the same shape
+    fetch_region_scores returns, minus category_score. Used to build a map
+    feature collection for the commute-time layer, whose scores come from a
+    live computation (commute.compute_commute_percentiles) rather than from
+    fct_category_score.
+    """
+    query = text("""
+        select region_id, name, ST_AsGeoJSON(geometry) as geometry_json
+        from dim_region
+        order by region_id
+    """)
+    with engine.connect() as conn:
+        rows = conn.execute(query)
+        return [
+            {
+                "region_id": row.region_id,
+                "name": row.name,
+                "geometry": json.loads(row.geometry_json),
+            }
+            for row in rows
+        ]
+
+
+def merge_region_scores(
+    geometries: list[dict[str, Any]], scores: dict[str, float | None]
+) -> list[dict[str, Any]]:
+    """Pure transform: attach a region_id -> score mapping (e.g. live
+    commute percentiles) onto fetch_region_geometries' rows, producing the
+    same {region_id, name, category_score, geometry} shape
+    fetch_region_scores returns from the DB — so build_feature_collection
+    can render either without knowing which one it got. A region missing
+    from `scores` (shouldn't happen; every region is queried) still gets an
+    explicit None rather than a KeyError, same "no data" shape as a region
+    that never cleared fct_category_score's coverage threshold.
+    """
+    return [
+        {**geometry, "category_score": scores.get(geometry["region_id"])}
+        for geometry in geometries
+    ]
+
+
 def build_feature_collection(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Pure transform: DB rows -> a GeoJSON FeatureCollection for pydeck's
     GeoJsonLayer, with a display-ready fill_color and score_label baked into

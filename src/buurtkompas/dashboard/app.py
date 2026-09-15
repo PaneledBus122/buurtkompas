@@ -16,17 +16,28 @@ Drop this module in ``src/buurtkompas/dashboard/app.py``.
 from __future__ import annotations
 
 import pydeck as pdk
+import requests
 import streamlit as st
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
+from buurtkompas.dashboard import commute
 from buurtkompas.dashboard.data import (
     DATABASE_URL,
     build_feature_collection,
     compute_view_state,
     fetch_available_categories,
+    fetch_region_geometries,
+    fetch_region_points,
     fetch_region_scores,
+    merge_region_scores,
 )
+
+# Not a real dim_indicator category (it's never written to the DB — see
+# commute.py's module docstring), but treated as one in the sidebar
+# selector once a lookup has been computed, per the feature's "selectable
+# layer alongside the existing categories" requirement.
+COMMUTE_CATEGORY = "commute"
 
 # Category slug -> human-readable label for the selector. Falls back to the
 # raw slug (via .get(category, category)) for any category added to
@@ -60,6 +71,34 @@ def load_categories() -> list[str]:
 def load_feature_collection(category: str) -> dict:
     rows = fetch_region_scores(get_engine(), category)
     return build_feature_collection(rows)
+
+
+@st.cache_data(show_spinner="Looking up commute times…")
+def load_commute_scores(address: str) -> dict[str, float | None]:
+    """Geocode `address` and compute a commute-time percentile per buurt.
+
+    Cached on the address string alone: Streamlit reruns this whole script
+    on every widget interaction, and this call burns real ORS API quota
+    (one geocode + one matrix request), so a re-run with the same address
+    must be free. Raises ValueError for an address ORS can't geocode, and
+    lets RuntimeError (missing ORS_API_KEY) / requests.RequestException
+    (ORS unreachable, timed out, 4xx/5xx) propagate — main() below turns
+    each into a user-facing st.error instead of letting it crash the app.
+    """
+    origins = fetch_region_points(get_engine())
+    destination = commute.geocode_address(address)
+    if destination is None:
+        raise ValueError(
+            f'Could not find a location for "{address}". Try a more '
+            "specific address (street, house number, city)."
+        )
+
+    origin_coords = [(row["lon"], row["lat"]) for row in origins]
+    minutes = commute.fetch_commute_minutes(destination, origin_coords)
+    durations_by_region = {
+        row["region_id"]: minute for row, minute in zip(origins, minutes)
+    }
+    return commute.compute_commute_percentiles(durations_by_region)
 
 
 def render_map(feature_collection: dict) -> None:
@@ -121,13 +160,55 @@ def main() -> None:
         )
         return
 
+    st.sidebar.divider()
+    st.sidebar.subheader("Commute time")
+    address = st.sidebar.text_input(
+        "Destination address", placeholder="e.g. Eindhoven Centraal Station"
+    )
+    # A button, not a call on every keystroke: text_input reruns the script
+    # on each character typed, and this lookup burns real ORS API quota.
+    if st.sidebar.button("Compute commute time") and address.strip():
+        try:
+            st.session_state["commute_scores"] = load_commute_scores(address.strip())
+            st.session_state["commute_address"] = address.strip()
+            st.session_state.pop("commute_error", None)
+        except RuntimeError as exc:  # ORS_API_KEY not set
+            st.session_state.pop("commute_scores", None)
+            st.session_state["commute_error"] = str(exc)
+        except ValueError as exc:  # address not recognized by ORS
+            st.session_state.pop("commute_scores", None)
+            st.session_state["commute_error"] = str(exc)
+        except requests.RequestException:  # ORS unreachable, timed out, 4xx/5xx
+            st.session_state.pop("commute_scores", None)
+            st.session_state["commute_error"] = (
+                "Couldn't reach the routing service (ORS). Please try again "
+                "in a moment."
+            )
+
+    if st.session_state.get("commute_error"):
+        st.sidebar.error(st.session_state["commute_error"])
+
+    options = list(categories)
+    if "commute_scores" in st.session_state:
+        options = [*options, COMMUTE_CATEGORY]
+
     category = st.sidebar.selectbox(
         "Category",
-        options=categories,
-        format_func=lambda c: CATEGORY_LABELS.get(c, c),
+        options=options,
+        format_func=lambda c: (
+            f"Commute time to {st.session_state.get('commute_address', '')}"
+            if c == COMMUTE_CATEGORY
+            else CATEGORY_LABELS.get(c, c)
+        ),
     )
 
-    feature_collection = load_feature_collection(category)
+    if category == COMMUTE_CATEGORY:
+        geometries = fetch_region_geometries(get_engine())
+        rows = merge_region_scores(geometries, st.session_state["commute_scores"])
+        feature_collection = build_feature_collection(rows)
+    else:
+        feature_collection = load_feature_collection(category)
+
     if not feature_collection["features"]:
         st.warning("No regions returned for this category.")
         return
