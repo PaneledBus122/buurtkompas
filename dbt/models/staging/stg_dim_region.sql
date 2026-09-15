@@ -8,5 +8,6 @@ select
     region_level,
     name,
     gemeente_code,
+    population,
     geometry
 from {{ source('buurtkompas_raw', 'dim_region') }}

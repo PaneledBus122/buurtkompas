@@ -1,18 +1,24 @@
-"""Load extracted CBS indicator values and PDOK geometries into Postgres/PostGIS.
+"""Load extracted CBS/politie indicator values and PDOK geometries into
+Postgres/PostGIS.
 
 Reads:
     data/raw/cbs_eindhoven.csv          (long format, already category-tagged
                                           by extract/cbs.py — columns:
                                           region_id, indicator_id,
                                           indicator_label, category, value)
+    data/raw/politie_eindhoven.csv      (same long-format columns, from
+                                          extract/politie.py)
+    data/raw/cbs_population_eindhoven.csv  (region_id, population —
+                                          normalization denominator, from
+                                          extract/cbs.py's extract_population())
     data/raw/pdok_eindhoven_buurten.geojson
 
 Writes:
     dim_region, dim_indicator, fact_indicator  (see load/schema.py)
 
-Category tagging is NOT done here — cbs.py already assigns `category` per
-indicator during extraction. This module only fills in `unit`, which isn't
-tracked upstream, via a small local lookup table below.
+Category tagging is NOT done here — cbs.py/politie.py already assign
+`category` per indicator during extraction. This module only fills in
+`unit`, which isn't tracked upstream, via a small local lookup table below.
 
 Refresh strategy: full truncate-and-reload of all three tables on every run.
 Simpler and safer than upserting for a small nightly batch (fine for Phase 4's
@@ -41,6 +47,8 @@ from buurtkompas.load.schema import dim_indicator, dim_region, fact_indicator, m
 
 RAW_DIR = Path("data/raw")
 CBS_CSV = RAW_DIR / "cbs_eindhoven.csv"
+CBS_POPULATION_CSV = RAW_DIR / "cbs_population_eindhoven.csv"
+POLITIE_CSV = RAW_DIR / "politie_eindhoven.csv"
 PDOK_GEOJSON = RAW_DIR / "pdok_eindhoven_buurten.geojson"
 
 DATABASE_URL = os.environ.get(
@@ -65,6 +73,7 @@ UNIT_BY_INDICATOR_ID: dict[str, str] = {
     "1014800": "%",  # Koopwoningen (%)
     "1014850_2": "%",  # Huurwoningen totaal (%)
     "M000224": "EUR",  # Gemiddeld inkomen per inwoner
+    "0.0.0": "aantal",  # Geregistreerde misdrijven (totaal aantal) — politie.py
 }
 
 
@@ -86,7 +95,15 @@ def load_dim_region(engine: Engine) -> None:
         }
     )
     gdf["region_level"] = "buurt"
-    gdf = gdf[["region_id", "region_level", "name", "gemeente_code", "geometry"]]
+
+    # Population comes from CBS (cbs.extract_population()), not PDOK, so
+    # it's merged in rather than renamed from an existing geojson column.
+    population_df = pd.read_csv(CBS_POPULATION_CSV)
+    gdf = gdf.merge(population_df, on="region_id", how="left")
+
+    gdf = gdf[
+        ["region_id", "region_level", "name", "gemeente_code", "population", "geometry"]
+    ]
     gdf.to_postgis("dim_region", engine, if_exists="append", index=False)
 
 
@@ -136,12 +153,18 @@ def load_fact_indicator(engine: Engine, cbs_df: pd.DataFrame) -> None:
 def main() -> None:
     engine = create_engine(DATABASE_URL)
     metadata.create_all(engine)  # idempotent: no-op for tables that already exist
-    cbs_df = pd.read_csv(CBS_CSV)
+
+    # cbs.py and politie.py both emit the same long-format columns
+    # (region_id, indicator_id, indicator_label, category, value), so their
+    # extracts are simply concatenated into one indicator/fact table.
+    indicator_df = pd.concat(
+        [pd.read_csv(CBS_CSV), pd.read_csv(POLITIE_CSV)], ignore_index=True
+    )
 
     _reset_tables(engine)
     load_dim_region(engine)
-    load_dim_indicator(engine, cbs_df)
-    load_fact_indicator(engine, cbs_df)
+    load_dim_indicator(engine, indicator_df)
+    load_fact_indicator(engine, indicator_df)
     print("Load complete: dim_region, dim_indicator, fact_indicator populated.")
 
 
