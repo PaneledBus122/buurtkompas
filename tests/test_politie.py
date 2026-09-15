@@ -36,6 +36,21 @@ def test_fetch_crime_counts_filters_to_wanted_regions(mock_get):
 
 
 @patch("buurtkompas.extract.politie.requests.get")
+def test_fetch_crime_counts_requests_json_format(mock_get):
+    """OData v3 (dataderden.cbs.nl) defaults to Atom/XML, unlike the v4
+    endpoint cbs.py uses — without "$format": "json" in the request,
+    response.json() raises JSONDecodeError against the real API even
+    though a Mock response happily returns whatever .json() is told to.
+    """
+    mock_get.return_value = _mock_response({"value": []})
+
+    politie.fetch_crime_counts("0.0.0 ", ["BU07720101"])
+
+    _, kwargs = mock_get.call_args
+    assert kwargs["params"]["$format"] == "json"
+
+
+@patch("buurtkompas.extract.politie.requests.get")
 def test_fetch_crime_counts_follows_odata_v3_next_link(mock_get):
     first_page = _mock_response(
         {

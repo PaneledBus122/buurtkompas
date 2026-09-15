@@ -71,7 +71,11 @@ def fetch_crime_counts(crime_type_code: str, region_codes: list[str]) -> list[di
     wanted = {code.strip() for code in region_codes}
     url = f"{BASE_URL}/TypedDataSet"
     params = {
-        "$filter": f"SoortMisdrijf eq '{crime_type_code}' and Perioden eq '{PERIOD}'"
+        "$filter": f"SoortMisdrijf eq '{crime_type_code}' and Perioden eq '{PERIOD}'",
+        # OData v3 defaults to Atom/XML (unlike v4, used by cbs.py, which
+        # defaults to JSON) — without this, response.json() below raises
+        # JSONDecodeError on the XML body.
+        "$format": "json",
     }
 
     results = []
