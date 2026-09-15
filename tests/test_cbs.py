@@ -65,3 +65,32 @@ def test_extract_all_builds_long_format_dataframe(mock_fetch_codes, mock_fetch_o
         "value",
     ]
     assert len(df) == len(cbs.MEASURES)
+
+
+@patch("buurtkompas.extract.cbs.fetch_observations")
+def test_fetch_population_maps_region_to_value(mock_fetch_obs):
+    mock_fetch_obs.return_value = [
+        {"region_id": "BU07720101", "value": 5000},
+        {"region_id": "BU07720102", "value": 3200},
+    ]
+
+    result = cbs.fetch_population(["BU07720101", "BU07720102"])
+
+    assert result == {"BU07720101": 5000, "BU07720102": 3200}
+    mock_fetch_obs.assert_called_once_with(
+        cbs.POPULATION_MEASURE_CODE, ["BU07720101", "BU07720102"]
+    )
+
+
+@patch("buurtkompas.extract.cbs.fetch_population")
+@patch("buurtkompas.extract.cbs.fetch_buurt_codes")
+def test_extract_population_builds_region_population_dataframe(
+    mock_fetch_codes, mock_fetch_population
+):
+    mock_fetch_codes.return_value = ["BU07720101"]
+    mock_fetch_population.return_value = {"BU07720101": 5000}
+
+    df = cbs.extract_population()
+
+    assert list(df.columns) == ["region_id", "population"]
+    assert df.to_dict("records") == [{"region_id": "BU07720101", "population": 5000}]

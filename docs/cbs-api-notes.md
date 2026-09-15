@@ -33,7 +33,7 @@
 | Category | Measure ID | Title |
 |---|---|---|
 | Schools/education | `D000045` | Afstand tot school (distance to school) |
-| Safety | — | Not in this table → separate source needed (politieopendata.cbs.nl) |
+| Safety | — | Not in this table → sourced from 47018NED instead, see below |
 | Amenities | `D000025` | Afstand tot grote supermarkt (distance to large supermarket) |
 | Amenities | `D000029` | Afstand tot kinderdagverblijf (distance to daycare) |
 | Amenities | `D000028` | Afstand tot huisartsenpraktijk (distance to GP practice) |
@@ -47,3 +47,21 @@
 ## Next steps
 - Query the `Observations` endpoint to confirm the actual data shape
 - Write extraction code mapping region code × indicator code → value (`src/buurtkompas/extract/cbs.py`)
+
+## Safety indicator: 47018NED (a different API generation)
+- Name: Geregistreerde misdrijven; soort misdrijf, wijk, buurt, jaarcijfers
+- Table code: **47018NED**, served from `dataderden.cbs.nl` (not `datasets.cbs.nl`)
+- Protocol: **OData v3** — a different shape from the OData v4 API above:
+  - Base URL: `https://dataderden.cbs.nl/ODataFeed/odata/47018NED`
+  - Entity sets: `TypedDataSet`, `UntypedDataSet`, `TableInfos`, `DataProperties`, `CategoryGroups`, `SoortMisdrijf`, `WijkenEnBuurten`, `Perioden`
+  - Pagination link key is the unprefixed `odata.nextLink` (v4 uses `@odata.nextLink`)
+  - No `in (...)` filter support — per-region filtering is done client-side in `politie.py` rather than server-side like `cbs.py`'s `Observations` query
+- `TypedDataSet` row shape (confirmed live sample):
+  ```json
+  {"ID":0,"SoortMisdrijf":"0.0.0 ","WijkenEnBuurten":"NL00      ","Perioden":"2012JJ00","GeregistreerdeMisdrijven_1":1127693,"Gemeentenaam_2":"...","SoortRegio_3":"..."}
+  ```
+  `GeregistreerdeMisdrijven_1` is a raw count (unit "aantal"), hence the per-1,000-residents normalization done in dbt.
+- `SoortMisdrijf` key `"0.0.0 "` (note the trailing space) = total registered crimes; v1 uses only this total, no subtype breakdown.
+- Period used: `"2024JJ00"`, matching the vintage year of the 85984NED kerncijfers extract.
+- Gotcha: `WijkenEnBuurten` in 47018NED uses the 2025 wijk/buurt boundary classification, while `dim_region` (from PDOK/85984NED) uses the 2024 classification. Expect a small number of buurt-code mismatches from boundary changes — these surface as ordinary coverage gaps (a buurt missing from the crime data), not errors.
+- Population denominator: CBS 85984NED, measure code `AantalInwoners_5` (label "Bevolking Aantal inwoners (aantal)") — fetched by `cbs.py`, stored on `dim_region.population`, not as a second population figure from 47018NED.
