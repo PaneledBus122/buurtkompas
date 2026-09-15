@@ -60,13 +60,15 @@ jobs:
           service: ${{ env.SERVICE_NAME }}
           region: ${{ env.GCP_REGION }}
           image: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/dashboard:${{ github.sha }}
-          # DATABASE_URL (the Neon connection string) is read from Secret
-          # Manager at deploy time -- it never appears in this workflow file,
-          # in a GitHub secret, or in `gcloud run deploy --set-env-vars`
-          # (which would otherwise leave it sitting in plaintext service
-          # config/logs).
+          # DATABASE_URL (the Neon connection string) and ORS_API_KEY (the
+          # commute-time feature's OpenRouteService key) are read from Secret
+          # Manager at deploy time -- neither ever appears in this workflow
+          # file, in a GitHub secret, or in `gcloud run deploy
+          # --set-env-vars` (which would otherwise leave them sitting in
+          # plaintext service config/logs).
           secrets: |
             DATABASE_URL=buurtkompas-database-url:latest
+            ORS_API_KEY=buurtkompas-ors-api-key:latest
           flags: |
             --allow-unauthenticated
             --min-instances=0
