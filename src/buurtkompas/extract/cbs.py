@@ -26,7 +26,7 @@ MEASURES: dict[str, tuple[str, str]] = {
 # normalization denominator (e.g. politie.py's crimes-per-1,000 indicator),
 # not itself a ranked indicator, so it's never tagged with a category or
 # written to fact_indicator — see load/loader.py's dim_region.population.
-POPULATION_MEASURE_CODE = "AantalInwoners_5"
+POPULATION_MEASURE_CODE = "T001036"
 
 
 def fetch_buurt_codes(gemeente_code: str) -> list[str]:
