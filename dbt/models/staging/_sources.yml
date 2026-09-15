@@ -16,6 +16,12 @@ sources:
             description: Buurtcode, e.g. "BU07721234".
           - name: gemeente_code
             description: Municipality code, e.g. "GM0772". Ranking partition key.
+          - name: population
+            description: >
+              Resident population, from CBS 85984NED. Nullable (CBS
+              suppresses this for some buurten). Used as a normalization
+              denominator (e.g. crimes per 1,000 residents), not itself a
+              ranked indicator.
 
       - name: dim_indicator
         description: One row per CBS indicator, tagged with its category.
