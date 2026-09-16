@@ -30,7 +30,7 @@ import streamlit as st
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
-from buurtkompas.dashboard import commute
+from buurtkompas.dashboard import commute, static_pages
 from buurtkompas.dashboard.colors import legend_gradient_css
 from buurtkompas.dashboard.data import (
     DATABASE_URL,
@@ -45,6 +45,7 @@ from buurtkompas.dashboard.data import (
     merge_region_scores,
     scale_bar_widths,
 )
+from buurtkompas.dashboard.footer import render_footer
 
 # Not a real dim_indicator category (it's never written to the DB — see
 # commute.py's module docstring), but treated as one in the sidebar
@@ -231,15 +232,23 @@ def render_sidebar_brand() -> None:
     """)
 
 
-def render_header() -> None:
+def render_header(methodology_page: st.Page) -> None:
+    """The dashboard's title and a short methodology teaser.
+
+    The teaser is deliberately short: the full explanation (categories,
+    the Overall score's weighting/renormalization, commute time) lives on
+    its own page (static_pages.render_methodology_page), reachable from
+    here and from the footer on every page.
+    """
     st.title("Eindhoven neighborhood comparison")
     with st.expander("Scoring methodology"):
         st.write(
             "Category scores are percentile ranks within the region's own "
             "gemeente (1.0 = best, 0.0 = worst). Gray / N/A means the buurt "
             "didn't clear the minimum data-coverage threshold for this "
-            "category — see the project README for the scoring methodology."
+            "category."
         )
+        st.page_link(methodology_page, label="Full methodology")
 
 
 @st.cache_resource
@@ -475,11 +484,15 @@ def render_score_table(feature_collection: dict) -> None:
     st.html(f'<div class="bk-rank-table">{"".join(row_html)}</div>')
 
 
-def main() -> None:
-    st.set_page_config(page_title="buurtkompas", layout="wide")
+def render_dashboard_page(methodology_page: st.Page) -> None:
+    """Home page: the interactive dashboard. Behavior/layout unchanged by
+    the site-structure work — the sidebar (commute card, category
+    selector, category weights, reset) is exactly what it was before;
+    only a footer is now appended after this renders (see main()).
+    """
     inject_custom_css()
     render_sidebar_brand()
-    render_header()
+    render_header(methodology_page)
 
     categories = load_categories()
     if not categories:
@@ -557,6 +570,64 @@ def main() -> None:
         render_map(feature_collection)
     with col_table:
         render_score_table(feature_collection)
+
+
+def main() -> None:
+    """Entry point: registers Home (the dashboard) plus the four static
+    informational pages (Methodology, About, Privacy, Contact) as an
+    explicit list of st.Page objects -- not the automatic pages/
+    directory convention -- and turns off Streamlit's own automatic
+    sidebar page list (position="hidden") so the sidebar stays exactly
+    the dashboard's own. The informational pages are reachable only
+    through footer.render_footer's links, appended after every page's
+    own content below.
+    """
+    st.set_page_config(page_title="buurtkompas", layout="wide")
+
+    def with_footer(page_fn):
+        def wrapped() -> None:
+            page_fn()
+            # `pages` is defined below, after this closure -- fine here,
+            # since `wrapped` isn't actually called until st.navigation
+            # dispatches to it, by which point `pages` is fully built.
+            render_footer(pages)
+
+        return wrapped
+
+    # A plain wrapper (not render_dashboard_page itself) so it satisfies
+    # st.Page's zero-argument Callable[[], None] while still threading
+    # through the Methodology page it links to from its own teaser.
+    def home_page() -> None:
+        render_dashboard_page(methodology_page)
+
+    methodology_page = st.Page(
+        with_footer(static_pages.render_methodology_page),
+        title="Methodology",
+        url_path="methodology",
+    )
+
+    pages = [
+        st.Page(with_footer(home_page), title="Home", url_path="home", default=True),
+        methodology_page,
+        st.Page(
+            with_footer(static_pages.render_about_page),
+            title="About",
+            url_path="about",
+        ),
+        st.Page(
+            with_footer(static_pages.render_privacy_page),
+            title="Privacy",
+            url_path="privacy",
+        ),
+        st.Page(
+            with_footer(static_pages.render_contact_page),
+            title="Contact",
+            url_path="contact",
+        ),
+    ]
+
+    nav = st.navigation(pages, position="hidden")
+    nav.run()
 
 
 if __name__ == "__main__":
