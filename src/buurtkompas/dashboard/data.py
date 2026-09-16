@@ -16,6 +16,7 @@ import math
 import os
 from typing import Any
 
+import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
@@ -30,6 +31,13 @@ DATABASE_URL = os.environ.get(
 # year selector — both this and the dbt models currently assume Kerncijfers
 # wijken en buurten's single-year (2024) snapshot.
 DATA_YEAR = 2024
+
+# A region needs at least this many of the 6 stored categories with a
+# non-null category_score to get an overall_score at all — ceil(6 / 2),
+# the same majority-coverage bar fct_category_score itself uses per
+# category (see dbt/models/marts/fct_category_score.sql), just applied one
+# level up, across categories instead of across indicators.
+MIN_CATEGORIES_FOR_OVERALL = 3
 
 
 def fetch_available_categories(engine: Engine) -> list[str]:
@@ -78,6 +86,98 @@ def fetch_region_scores(engine: Engine, category: str) -> list[dict[str, Any]]:
             }
             for row in rows
         ]
+
+
+def fetch_category_scores(engine: Engine) -> pd.DataFrame:
+    """Long-format (region_id, gemeente_code, category, category_score) —
+    one row per (region, category) pair across all 6 stored categories,
+    the raw input compute_overall_score needs to build a weighted
+    composite per buurt.
+
+    Reads fct_category_score directly rather than going through
+    fetch_region_scores (which fetches one category and its geometry at a
+    time): the "Overall" view needs every category for every region in one
+    shot, and doesn't need geometry from this query at all — the map is
+    built separately from fetch_region_geometries + merge_region_scores,
+    same as the commute-time layer.
+    """
+    query = text("""
+        select region_id, gemeente_code, category, category_score
+        from analytics.fct_category_score
+        where year = :year
+    """)
+    with engine.connect() as conn:
+        return pd.read_sql(query, conn, params={"year": DATA_YEAR})
+
+
+def compute_overall_score(
+    category_scores: pd.DataFrame, weights: dict[str, float]
+) -> pd.Series:
+    """Weighted composite of category_score across categories, re-ranked as
+    a percentile within each region's gemeente — same convention as any
+    single category_score (1.0 = best, NaN = doesn't clear the coverage
+    threshold).
+
+    `category_scores` is fetch_category_scores' long-format
+    (region_id, gemeente_code, category, category_score) table — it never
+    contains a "commute" row (commute-time is a live, address-triggered
+    overlay computed in commute.py, not a stored fct_category_score
+    category), so this is excluded from the composite by construction, not
+    by filtering. `weights` maps each of the 6 stored categories to a
+    weight; the caller is expected to have already normalized these to sum
+    to 1 (app.py's sliders do this) — but this function renormalizes again
+    per region over just that region's *available* (non-null) categories,
+    so a missing category doesn't silently deflate the composite by
+    dropping its weight instead of redistributing it to the rest.
+
+    A region needs at least MIN_CATEGORIES_FOR_OVERALL non-null category
+    scores; below that its entry is NaN rather than a composite computed
+    from a thin, unrepresentative subset.
+
+    Returns a Series of overall_score indexed by region_id, covering every
+    region_id present in `category_scores` (including ones that end up
+    NaN), so a caller can always look up any region without a KeyError.
+    """
+    all_regions = category_scores["region_id"].unique()
+    gemeente_by_region = (
+        category_scores.drop_duplicates("region_id")
+        .set_index("region_id")["gemeente_code"]
+        .reindex(all_regions)
+    )
+
+    usable = category_scores.dropna(subset=["category_score"]).copy()
+    usable["weight"] = usable["category"].map(weights).astype(float)
+
+    # Renormalize over just the categories this region actually has, so
+    # e.g. a region missing `income` gets its weight redistributed
+    # proportionally across the other 5, rather than the composite simply
+    # losing income's share of the total.
+    weight_totals = usable.groupby("region_id")["weight"].transform("sum")
+    usable["weighted_score"] = (usable["weight"] / weight_totals) * usable[
+        "category_score"
+    ]
+
+    available_category_counts = usable.groupby("region_id")["category"].transform(
+        "nunique"
+    )
+    usable = usable[available_category_counts >= MIN_CATEGORIES_FOR_OVERALL]
+
+    # min_count=1: an all-NaN group (e.g. every available category's weight
+    # happened to be 0, so weight_totals was 0 and weighted_score is NaN
+    # throughout) must sum to NaN, not silently to 0.0 -- pandas' default
+    # skipna=True sum of an all-NaN group is 0.0, which would misreport as
+    # "worst possible score" instead of "no usable weights".
+    overall_raw = usable.groupby("region_id")["weighted_score"].sum(min_count=1)
+    overall_raw = overall_raw.reindex(all_regions)  # NaN for excluded regions
+
+    # rank(pct=True) on a groupby leaves NaN entries as NaN (na_option
+    # defaults to "keep") and computes the percentile among only the
+    # non-null values within each gemeente_code group — exactly the
+    # "partitioned by city, N/A doesn't participate in ranking" behavior
+    # fct_category_score's own percent_rank() gives at the category level.
+    return (
+        overall_raw.groupby(gemeente_by_region).rank(pct=True).rename("overall_score")
+    )
 
 
 def fetch_region_points(engine: Engine) -> list[dict[str, Any]]:

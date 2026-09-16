@@ -15,6 +15,8 @@ Drop this module in ``src/buurtkompas/dashboard/app.py``.
 
 from __future__ import annotations
 
+import math
+
 import pydeck as pdk
 import requests
 import streamlit as st
@@ -25,8 +27,10 @@ from buurtkompas.dashboard import commute
 from buurtkompas.dashboard.data import (
     DATABASE_URL,
     build_feature_collection,
+    compute_overall_score,
     compute_view_state,
     fetch_available_categories,
+    fetch_category_scores,
     fetch_region_geometries,
     fetch_region_points,
     fetch_region_scores,
@@ -39,18 +43,31 @@ from buurtkompas.dashboard.data import (
 # layer alongside the existing categories" requirement.
 COMMUTE_CATEGORY = "commute"
 
+# Also not a real dim_indicator category — a user-adjustable weighted
+# composite of all 6 stored categories (see
+# data.compute_overall_score), always available (unlike COMMUTE_CATEGORY,
+# which only appears after a successful address lookup) and the default
+# selection, since "which buurt is best overall" is this dashboard's core
+# question.
+OVERALL_CATEGORY = "overall"
+
 # Category slug -> human-readable label for the selector. Falls back to the
 # raw slug (via .get(category, category)) for any category added to
 # dim_indicator that hasn't been given a label here yet, so a new category
-# (e.g. the planned `safety`) shows up immediately instead of erroring.
+# shows up immediately instead of erroring. Key order also drives the
+# "Overall" view's slider order below.
 CATEGORY_LABELS: dict[str, str] = {
-    "education": "Education",
+    "schools": "Education",
     "amenities": "Amenities",
     "quiet_nature": "Quiet & Nature",
     "housing": "Housing",
     "income": "Income",
     "safety": "Safety",
 }
+
+DEFAULT_SLIDER_VALUE = 5
+SLIDER_MIN = 0
+SLIDER_MAX = 10
 
 
 @st.cache_resource
@@ -99,6 +116,62 @@ def load_commute_scores(address: str) -> dict[str, float | None]:
         row["region_id"]: minute for row, minute in zip(origins, minutes)
     }
     return commute.compute_commute_percentiles(durations_by_region)
+
+
+def render_weight_sliders(available_categories: list[str]) -> dict[str, float]:
+    """Render one 0-10 slider per category (default 5 = equal weight),
+    show the resulting normalized percentages, and return weights summing
+    to 1 — the shape compute_overall_score expects.
+
+    Deliberately not cached: the whole point is that every drag
+    recomputes and re-renders the map/table from live widget state (see
+    main()), and the underlying query is only ~116 rows either way.
+    """
+    st.sidebar.subheader("Category weights")
+    slider_categories = [c for c in CATEGORY_LABELS if c in available_categories]
+
+    raw_weights: dict[str, int] = {
+        category: st.sidebar.slider(
+            CATEGORY_LABELS.get(category, category),
+            min_value=SLIDER_MIN,
+            max_value=SLIDER_MAX,
+            value=DEFAULT_SLIDER_VALUE,
+            key=f"weight_{category}",
+        )
+        for category in slider_categories
+    }
+
+    total = sum(raw_weights.values())
+    if total == 0:
+        # Every slider dragged to 0 at once: fall back to equal weights
+        # rather than dividing by zero and feeding compute_overall_score a
+        # composite that's NaN for every region.
+        weights = dict.fromkeys(slider_categories, 1 / len(slider_categories))
+    else:
+        weights = {category: value / total for category, value in raw_weights.items()}
+
+    for category in slider_categories:
+        st.sidebar.caption(
+            f"{CATEGORY_LABELS.get(category, category)}: {weights[category]:.0%}"
+        )
+
+    return weights
+
+
+def load_overall_feature_collection(engine: Engine, weights: dict[str, float]) -> dict:
+    category_scores = fetch_category_scores(engine)
+    overall = compute_overall_score(category_scores, weights)
+    # compute_overall_score returns NaN (pandas/numpy's "no value") for a
+    # region that didn't clear the coverage threshold; merge_region_scores
+    # / build_feature_collection expect the same None convention every
+    # other category uses, so translate at this boundary.
+    overall_scores = {
+        region_id: (None if math.isnan(score) else float(score))
+        for region_id, score in overall.items()
+    }
+    geometries = fetch_region_geometries(engine)
+    rows = merge_region_scores(geometries, overall_scores)
+    return build_feature_collection(rows)
 
 
 def render_map(feature_collection: dict) -> None:
@@ -188,7 +261,7 @@ def main() -> None:
     if st.session_state.get("commute_error"):
         st.sidebar.error(st.session_state["commute_error"])
 
-    options = list(categories)
+    options = [OVERALL_CATEGORY, *categories]
     if "commute_scores" in st.session_state:
         options = [*options, COMMUTE_CATEGORY]
 
@@ -196,13 +269,18 @@ def main() -> None:
         "Category",
         options=options,
         format_func=lambda c: (
-            f"Commute time to {st.session_state.get('commute_address', '')}"
+            "Overall"
+            if c == OVERALL_CATEGORY
+            else f"Commute time to {st.session_state.get('commute_address', '')}"
             if c == COMMUTE_CATEGORY
             else CATEGORY_LABELS.get(c, c)
         ),
     )
 
-    if category == COMMUTE_CATEGORY:
+    if category == OVERALL_CATEGORY:
+        weights = render_weight_sliders(categories)
+        feature_collection = load_overall_feature_collection(get_engine(), weights)
+    elif category == COMMUTE_CATEGORY:
         geometries = fetch_region_geometries(get_engine())
         rows = merge_region_scores(geometries, st.session_state["commute_scores"])
         feature_collection = build_feature_collection(rows)
