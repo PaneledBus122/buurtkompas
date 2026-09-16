@@ -18,6 +18,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY README.md ./
 COPY src/ src/
+COPY .streamlit/ .streamlit/
 RUN uv sync --frozen --no-dev
 
 ENV PATH="/app/.venv/bin:${PATH}"

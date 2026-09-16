@@ -11,21 +11,26 @@ from __future__ import annotations
 
 from itertools import pairwise
 
-# Three-stop diverging scale: red (worst) -> yellow (median) -> green (best).
-# Chosen over a single-hue sequential scale because category_score is a
-# percentile (0=worst, 1=best) where the qualitative "good vs. bad" framing
-# matters more than showing fine-grained magnitude — a viewer should be able
-# to tell "below vs. above average" at a glance without reading the legend.
+# Five-stop diverging scale: blue (worst) -> gray (median) -> orange (best).
+# Not red/green: that pairing is indistinguishable to the ~8% of men with
+# red-green color vision deficiency, the single most common form of color
+# blindness — blue/orange is one of the standard colorblind-safe diverging
+# pairs (e.g. ColorBrewer's RdYlBu-style alternatives) and still reads
+# clearly as "which side of average" at a glance, the same design goal the
+# old red/yellow/green scale had.
 _COLOR_STOPS: list[tuple[float, tuple[int, int, int]]] = [
-    (0.0, (215, 48, 39)),  # red
-    (0.5, (255, 255, 191)),  # yellow
-    (1.0, (26, 152, 80)),  # green
+    (0.0, (0x24, 0x50, 0x8F)),  # blue
+    (0.25, (0x9F, 0xB4, 0xD2)),  # light blue
+    (0.5, (0xC7, 0xC4, 0xB8)),  # neutral gray
+    (0.75, (0xE3, 0xB2, 0x7B)),  # light orange
+    (1.0, (0xC8, 0x6A, 0x1D)),  # orange
 ]
 
 # Neutral gray for buurten that didn't clear the coverage threshold
 # (category_score IS NULL in fct_category_score) — deliberately desaturated
-# so "no data" reads as visually distinct from "bad score" (red), not
-# confusable with it.
+# so "no data" reads as visually distinct from "bad score" (blue), not
+# confusable with it. Kept close to (but not identical to) the scale's own
+# neutral/median stop above, which is a real score (0.5), not "no data".
 NO_DATA_COLOR: list[int] = [200, 200, 200, 120]
 
 FILL_ALPHA = 200
@@ -36,12 +41,12 @@ def score_to_color(score: float | None) -> list[int]:
 
     ``score`` of None means the region didn't clear fct_category_score's
     coverage-threshold gate (see the dbt mart) — rendered as
-    ``NO_DATA_COLOR`` rather than silently defaulting to red or green,
+    ``NO_DATA_COLOR`` rather than silently defaulting to blue or orange,
     which would misrepresent "we don't know" as "this is bad/good".
 
     For a real score, linearly interpolates between the two ``_COLOR_STOPS``
-    the value falls between. E.g. score=0.75 falls in the [0.5, 1.0] segment,
-    25% of the way from yellow to green.
+    the value falls between. E.g. score=0.875 falls in the [0.75, 1.0]
+    segment, halfway from light orange to orange.
     """
     if score is None:
         return NO_DATA_COLOR
@@ -59,3 +64,24 @@ def score_to_color(score: float | None) -> list[int]:
     # the function total rather than letting a float rounding edge case
     # raise instead of degrading gracefully.
     return NO_DATA_COLOR
+
+
+def score_to_hex(score: float | None) -> str:
+    """Same mapping as score_to_color, as a "#rrggbb" string (no alpha) —
+    for CSS contexts (the ranked-buurten table's color dots) that don't
+    understand pydeck's [r, g, b, a] list format.
+    """
+    r, g, b, _alpha = score_to_color(score)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def legend_gradient_css() -> str:
+    """A CSS ``linear-gradient`` built from the same ``_COLOR_STOPS`` the
+    map itself uses, so the legend rendered in app.py can never drift out
+    of sync with the actual choropleth colors — one source of truth for
+    both.
+    """
+    stops = ", ".join(
+        f"#{r:02x}{g:02x}{b:02x} {pos:.0%}" for pos, (r, g, b) in _COLOR_STOPS
+    )
+    return f"linear-gradient(to right, {stops})"
