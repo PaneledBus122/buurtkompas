@@ -5,11 +5,36 @@ this targets the parts that don't).
 Drop this module in ``tests/test_dashboard_data.py``.
 """
 
+import math
+
+import pandas as pd
+import pytest
+
 from buurtkompas.dashboard.data import (
     build_feature_collection,
+    compute_overall_score,
     compute_view_state,
     merge_region_scores,
 )
+
+ALL_CATEGORIES = ["schools", "amenities", "quiet_nature", "housing", "income", "safety"]
+
+
+def _category_rows(region_id: str, gemeente_code: str, scores: dict[str, float | None]):
+    """One fct_category_score-shaped row per (category, score) pair, with a
+    None score representing a category that never cleared the
+    coverage-threshold gate (a real NULL row from the mart's LEFT JOIN
+    pattern), not a missing row.
+    """
+    return [
+        {
+            "region_id": region_id,
+            "gemeente_code": gemeente_code,
+            "category": category,
+            "category_score": score,
+        }
+        for category, score in scores.items()
+    ]
 
 
 def _row(
@@ -101,3 +126,165 @@ def test_merge_region_scores_defaults_missing_region_to_none():
     rows = merge_region_scores(geometries, {})
 
     assert rows[0]["category_score"] is None
+
+
+def test_compute_overall_score_ranks_all_six_categories_present():
+    weights = dict.fromkeys(ALL_CATEGORIES, 1 / 6)
+    df = pd.DataFrame(
+        _category_rows("BU_HIGH", "GM0772", dict.fromkeys(ALL_CATEGORIES, 0.9))
+        + _category_rows("BU_LOW", "GM0772", dict.fromkeys(ALL_CATEGORIES, 0.1))
+    )
+
+    result = compute_overall_score(df, weights)
+
+    # Two distinct composite values in one gemeente: the higher one is the
+    # best (1.0), the lower one is the worst (0.5, since rank(pct=True)
+    # with 2 values gives 1/2 and 2/2).
+    assert result["BU_HIGH"] == 1.0
+    assert result["BU_LOW"] == 0.5
+
+
+def test_compute_overall_score_renormalizes_missing_categories():
+    """A region missing its most heavily-weighted category must have that
+    weight redistributed across the categories it does have — not simply
+    dropped. Constructed so a buggy "drop the missing weight" (rather than
+    renormalize) implementation would flip the expected ranking: BU_MISSING
+    is missing the 0.7-weighted `schools` category entirely but scores a
+    perfect 1.0 in every other category, so once its remaining weights are
+    renormalized to sum to 1, its composite is trivially 1.0 (a weighted
+    average of all-1.0s) -- higher than BU_FULL's mediocre 0.65, even
+    though BU_MISSING is missing the single biggest-weighted category.
+    A non-renormalizing implementation would instead compute BU_MISSING's
+    raw composite as just 0.3 (the present weights' original, un-rescaled
+    sum), which is lower than BU_FULL's 0.65 -- the opposite ranking.
+    """
+    weights = {
+        "schools": 0.7,
+        "amenities": 0.1,
+        "quiet_nature": 0.1,
+        "housing": 0.05,
+        "income": 0.025,
+        "safety": 0.025,
+    }
+    df = pd.DataFrame(
+        _category_rows(
+            "BU_FULL",
+            "GM0772",
+            {
+                "schools": 0.5,
+                "amenities": 1.0,
+                "quiet_nature": 1.0,
+                "housing": 1.0,
+                "income": 1.0,
+                "safety": 1.0,
+            },
+        )
+        + _category_rows(
+            "BU_MISSING",
+            "GM0772",
+            {
+                "schools": None,  # never cleared the coverage threshold
+                "amenities": 1.0,
+                "quiet_nature": 1.0,
+                "housing": 1.0,
+                "income": 1.0,
+                "safety": 1.0,
+            },
+        )
+    )
+
+    result = compute_overall_score(df, weights)
+
+    assert result["BU_MISSING"] == 1.0
+    assert result["BU_FULL"] == 0.5
+    assert result["BU_MISSING"] > result["BU_FULL"]
+
+
+def test_compute_overall_score_below_minimum_categories_is_nan():
+    weights = dict.fromkeys(ALL_CATEGORIES, 1 / 6)
+    df = pd.DataFrame(
+        _category_rows("BU_ENOUGH", "GM0772", dict.fromkeys(ALL_CATEGORIES, 0.6))
+        + _category_rows(
+            "BU_TOO_FEW",
+            "GM0772",
+            {
+                "schools": 0.8,
+                "amenities": 0.7,
+                "quiet_nature": None,
+                "housing": None,
+                "income": None,
+                "safety": None,
+            },
+        )
+    )
+
+    result = compute_overall_score(df, weights)
+
+    # Only 2 of 6 categories present, below MIN_CATEGORIES_FOR_OVERALL (3).
+    assert math.isnan(result["BU_TOO_FEW"])
+    # A region with enough categories elsewhere isn't affected by another
+    # region falling below the threshold.
+    assert not math.isnan(result["BU_ENOUGH"])
+
+
+def test_compute_overall_score_zero_present_categories_is_nan():
+    weights = dict.fromkeys(ALL_CATEGORIES, 1 / 6)
+    df = pd.DataFrame(
+        _category_rows("BU_ENOUGH", "GM0772", dict.fromkeys(ALL_CATEGORIES, 0.6))
+        + _category_rows("BU_NONE", "GM0772", dict.fromkeys(ALL_CATEGORIES, None))
+    )
+
+    result = compute_overall_score(df, weights)
+
+    assert math.isnan(result["BU_NONE"])
+
+
+def test_compute_overall_score_equal_weights_matches_plain_average():
+    """With equal weights and every category present, the weighted
+    composite degenerates to a plain mean -- this cross-checks
+    compute_overall_score's weighting/renormalization logic against the
+    simplest possible independent computation of the same thing.
+    """
+    weights = dict.fromkeys(ALL_CATEGORIES, 1 / 6)
+    scores_by_region = {
+        "BU_A": [0.9, 0.8, 0.7, 0.6, 0.5, 0.4],
+        "BU_B": [0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+        "BU_C": [0.1, 0.2, 0.1, 0.2, 0.1, 0.2],
+    }
+    df = pd.DataFrame(
+        [
+            row
+            for region_id, scores in scores_by_region.items()
+            for row in _category_rows(
+                region_id, "GM0772", dict(zip(ALL_CATEGORIES, scores))
+            )
+        ]
+    )
+
+    result = compute_overall_score(df, weights)
+
+    expected_raw = {
+        region_id: sum(scores) / len(scores)
+        for region_id, scores in scores_by_region.items()
+    }
+    expected_rank = pd.Series(expected_raw).rank(pct=True)
+
+    for region_id in scores_by_region:
+        assert result[region_id] == pytest.approx(expected_rank[region_id])
+
+
+def test_compute_overall_score_covers_every_input_region():
+    """The returned Series always has an entry for every region_id in the
+    input, including ones that end up NaN, so a caller can look up any
+    region without a KeyError (matching merge_region_scores' own "always
+    present, sometimes None" contract).
+    """
+    weights = dict.fromkeys(ALL_CATEGORIES, 1 / 6)
+    df = pd.DataFrame(
+        _category_rows("BU_A", "GM0772", dict.fromkeys(ALL_CATEGORIES, 0.6))
+        + _category_rows("BU_B", "GM0772", dict.fromkeys(ALL_CATEGORIES, None))
+    )
+
+    result = compute_overall_score(df, weights)
+
+    assert set(result.index) == {"BU_A", "BU_B"}
