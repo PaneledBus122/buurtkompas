@@ -73,28 +73,39 @@ def render_methodology_page() -> None:
 def render_about_page() -> None:
     st.title("About this project")
     st.markdown(
-        "Buurtkompas compares neighbourhoods (buurten) in Eindhoven, the "
-        "Netherlands, side by side using public open data, so you can look "
-        "at more than one neighbourhood's reputation or gut feeling when "
-        "deciding where to live."
+        "Where you end up living quietly shapes a lot of your life — how "
+        "long your commute is, whether your kids can walk to school, how "
+        "well you sleep at night, who you run into at the corner shop. "
+        "Yet most people choose a neighbourhood on a handful of viewings "
+        "and a feeling, because that's all that's easy to get."
     )
     st.markdown(
-        "This is a personal data-engineering portfolio project built by "
-        "Seongjoon Lim, a condensed-matter physics researcher moving into "
-        "software/data engineering. It's meant to demonstrate an "
-        "end-to-end data pipeline and a small production web app, not to "
-        "be a commercial product: batch ETL from CBS and PDOK open data, "
-        "transformation and scoring with dbt (staging → intermediate → "
-        "marts), a Postgres/PostGIS database (hosted on Neon), an "
-        "interactive Streamlit + pydeck dashboard, and deployment on "
-        "Google Cloud Run with GitHub Actions CI/CD."
+        "That feels backwards. The information to make a fairer choice "
+        "already exists — it's public, it's free, it's just scattered "
+        "across statistics offices and government portals in a form "
+        "nobody but a specialist would enjoy reading. Buurtkompas exists "
+        "to close that gap: to take what public data can tell you about a "
+        "neighbourhood in and around Eindhoven and put it in front of "
+        "anyone deciding where to live, in one place, on equal footing."
     )
     st.markdown(
-        "The scoring methodology is explained in full on the Methodology "
-        "page. The complete source code, including the dbt models and the "
-        "dashboard itself, is open on GitHub: [repo link placeholder]."
+        "That matters most for the people with the least local knowledge "
+        "to fall back on — someone moving to Eindhoven from another "
+        "country, another city, or into their first place of their own, "
+        "who's never had the years it takes to build the kind of "
+        '"everyone knows that street" instinct a longtime resident has '
+        "for free. Public data doesn't care how long you've lived "
+        "somewhere. Read fairly, it can hand a newcomer roughly the same "
+        "starting point as a local."
     )
-    st.markdown("Questions, bug reports, or ideas are welcome — see the Contact page.")
+    st.markdown(
+        "That's the hope behind this project: not to tell anyone where to "
+        "live, but to make sure the choice starts from the same solid "
+        "ground for everyone who has to make it. How the numbers behind "
+        "it are actually calculated is laid out in full on the "
+        "Methodology page, so none of it has to be taken on faith."
+    )
+    st.markdown("Questions, or something that looks off? See the Contact page.")
 
 
 def render_privacy_page() -> None:
