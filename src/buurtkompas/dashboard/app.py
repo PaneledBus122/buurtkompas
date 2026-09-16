@@ -1,8 +1,14 @@
-"""Streamlit baseline dashboard (Phase 5): a choropleth map of buurt
-category scores, with no AI/natural-language layer yet (that's Phase 7).
+"""Streamlit dashboard (Phase 5): a choropleth map of buurt category
+scores, with no AI/natural-language layer yet (that's Phase 7).
 
 All data access and geometry/color transforms live in data.py/colors.py —
 this module is UI wiring only (widgets, layout, handing data to pydeck).
+Most of the visual theme (accent color, fonts, dark palette, radii,
+sidebar colors) lives in .streamlit/config.toml, Streamlit's own native
+theming — the CSS injected here (inject_custom_css) only covers the
+handful of things that config can't express: the score-color-driven
+ranked-table dots/bars, the map's gradient legend, and a few custom
+section labels/cards.
 
 Usage:
     uv run streamlit run src/buurtkompas/dashboard/app.py
@@ -15,6 +21,7 @@ Drop this module in ``src/buurtkompas/dashboard/app.py``.
 
 from __future__ import annotations
 
+import html
 import math
 
 import pydeck as pdk
@@ -24,6 +31,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
 from buurtkompas.dashboard import commute
+from buurtkompas.dashboard.colors import legend_gradient_css
 from buurtkompas.dashboard.data import (
     DATABASE_URL,
     build_feature_collection,
@@ -35,6 +43,7 @@ from buurtkompas.dashboard.data import (
     fetch_region_points,
     fetch_region_scores,
     merge_region_scores,
+    scale_bar_widths,
 )
 
 # Not a real dim_indicator category (it's never written to the DB — see
@@ -44,11 +53,10 @@ from buurtkompas.dashboard.data import (
 COMMUTE_CATEGORY = "commute"
 
 # Also not a real dim_indicator category — a user-adjustable weighted
-# composite of all 6 stored categories (see
-# data.compute_overall_score), always available (unlike COMMUTE_CATEGORY,
-# which only appears after a successful address lookup) and the default
-# selection, since "which buurt is best overall" is this dashboard's core
-# question.
+# composite of all 6 stored categories (see data.compute_overall_score),
+# always available (unlike COMMUTE_CATEGORY, which only appears after a
+# successful address lookup) and the default selection, since "which
+# buurt is best overall" is this dashboard's core question.
 OVERALL_CATEGORY = "overall"
 
 # Category slug -> human-readable label for the selector. Falls back to the
@@ -68,6 +76,170 @@ CATEGORY_LABELS: dict[str, str] = {
 DEFAULT_SLIDER_VALUE = 5
 SLIDER_MIN = 0
 SLIDER_MAX = 10
+
+# Must match .streamlit/config.toml's [theme] primaryColor — config.toml
+# drives Streamlit's own theming (buttons, sliders, focus rings), but the
+# custom CSS below (things config.toml can't express, like the commute
+# card's tint) needs the same value in Python to build rgba()s from it.
+ACCENT_COLOR = "#2EC4B6"
+
+
+def inject_custom_css() -> None:
+    """Custom CSS for the handful of things Streamlit's native theming
+    (.streamlit/config.toml) can't express: layout/typography for a few
+    custom-built elements (the brand block, section labels, the commute
+    card, the map's legend, the ranked-buurten table's per-row dot/bar).
+    Colors, fonts, and every standard widget's accent are themed via
+    config.toml instead of here, so they can't drift out of sync with it.
+
+    Uses st.markdown (not st.html): a style-only st.html() body gets
+    routed to Streamlit's "event container" (added for its own issue
+    #9388, to avoid a style block taking up layout space) — which in
+    practice never actually lands the <style> tag in the page's DOM.
+    st.markdown's unsafe_allow_html path has no such special-casing and
+    reliably renders inline <style> blocks, which is the point here.
+    """
+    st.markdown(
+        f"""
+        <style>
+        .bk-brand {{
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding-bottom: 1rem;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }}
+        .bk-brand-icon {{ font-size: 1.5rem; line-height: 1; }}
+        .bk-brand-name {{
+            font-family: var(--font-heading, inherit);
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: {ACCENT_COLOR};
+            line-height: 1.15;
+        }}
+        .bk-brand-tagline {{
+            font-size: 0.65rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.5);
+        }}
+
+        .bk-section-label {{
+            font-size: 0.7rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.55);
+            margin: 0.25rem 0 0.5rem 0;
+        }}
+        .bk-section-label--accent {{ color: {ACCENT_COLOR}; }}
+
+        /* Streamlit assigns containers created with container(key=...) the
+        CSS class "st-key-<key>" -- this tints/borders the commute-time
+        card so it visually reads as its own overlay feature, separate
+        from the category-weights composite score below it. */
+        .st-key-commute_section {{
+            background-color: rgba(46, 196, 182, 0.07);
+            border: 1px solid rgba(46, 196, 182, 0.3);
+            border-radius: 0.75rem;
+            padding: 0.9rem 1rem 1.1rem 1rem;
+            margin-bottom: 1.25rem;
+        }}
+
+        .bk-legend {{ margin-top: 0.6rem; }}
+        .bk-legend-bar {{
+            height: 10px;
+            border-radius: 5px;
+            background: {legend_gradient_css()};
+        }}
+        .bk-legend-labels {{
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.7rem;
+            color: rgba(255, 255, 255, 0.55);
+            margin-top: 0.3rem;
+        }}
+
+        .bk-rank-header {{
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+        }}
+        .bk-rank-range {{
+            font-size: 0.7rem;
+            color: rgba(255, 255, 255, 0.4);
+        }}
+        .bk-rank-table {{ max-height: 32rem; overflow-y: auto; }}
+        .bk-rank-row {{
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0.2rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            font-size: 0.85rem;
+        }}
+        .bk-rank-num {{
+            width: 1.4rem;
+            flex-shrink: 0;
+            text-align: right;
+            color: rgba(255, 255, 255, 0.4);
+        }}
+        .bk-rank-dot {{
+            width: 0.55rem;
+            height: 0.55rem;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }}
+        .bk-rank-name {{
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }}
+        .bk-rank-bar-track {{
+            width: 4rem;
+            height: 6px;
+            flex-shrink: 0;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 3px;
+            overflow: hidden;
+        }}
+        .bk-rank-bar-fill {{ display: block; height: 100%; border-radius: 3px; }}
+        .bk-rank-score {{
+            width: 2.6rem;
+            flex-shrink: 0;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_sidebar_brand() -> None:
+    st.sidebar.html("""
+        <div class="bk-brand">
+            <span class="bk-brand-icon">🧭</span>
+            <div>
+                <div class="bk-brand-name">buurtkompas</div>
+                <div class="bk-brand-tagline">Eindhoven &middot; Buurtvergelijker</div>
+            </div>
+        </div>
+    """)
+
+
+def render_header() -> None:
+    st.title("Eindhoven neighborhood comparison")
+    with st.expander("Scoring methodology"):
+        st.write(
+            "Category scores are percentile ranks within the region's own "
+            "gemeente (1.0 = best, 0.0 = worst). Gray / N/A means the buurt "
+            "didn't clear the minimum data-coverage threshold for this "
+            "category — see the project README for the scoring methodology."
+        )
 
 
 @st.cache_resource
@@ -130,20 +302,48 @@ def load_commute_scores(address: str) -> dict[str, float | None]:
 
 
 def render_weight_sliders(available_categories: list[str]) -> dict[str, float]:
-    """Render one 0-10 slider per category (default 5 = equal weight),
-    show the resulting normalized percentages, and return weights summing
-    to 1 — the shape compute_overall_score expects.
+    """Render one 0-10 slider per category (default 5 = equal weight) with
+    its live normalized percentage inline in the label (e.g. "Education
+    17%"), plus a reset action, and return weights summing to 1 — the
+    shape compute_overall_score expects.
 
     Deliberately not cached: the whole point is that every drag
     recomputes and re-renders the map/table from live widget state (see
     main()), and the underlying query is only ~116 rows either way.
     """
-    st.sidebar.subheader("Category weights")
+    st.sidebar.html('<p class="bk-section-label">Category weights</p>')
     slider_categories = [c for c in CATEGORY_LABELS if c in available_categories]
+
+    # A reset click sets this flag and reruns (see the button below) rather
+    # than mutating st.session_state[f"weight_{category}"] directly at that
+    # point: Streamlit raises StreamlitWidgetAlreadyInstantiatedError if you
+    # mutate a widget's own session_state key after that widget has already
+    # been instantiated in the same run (which the sliders below always
+    # have been, since the button is rendered after them). Consuming the
+    # flag here, before any slider widget exists this run, avoids that.
+    if st.session_state.pop("reset_weights_pending", False):
+        for category in slider_categories:
+            st.session_state[f"weight_{category}"] = DEFAULT_SLIDER_VALUE
+
+    # Read each slider's last-known value *before* instantiating the
+    # widgets below, so the percentage baked into each slider's own label
+    # reflects the values about to be rendered this run -- Streamlit
+    # updates session_state for a just-changed widget before the script
+    # reruns, so this is never one interaction behind.
+    prior_values = {
+        category: st.session_state.get(f"weight_{category}", DEFAULT_SLIDER_VALUE)
+        for category in slider_categories
+    }
+    prior_total = sum(prior_values.values())
+    prior_percentages = (
+        {c: v / prior_total for c, v in prior_values.items()}
+        if prior_total > 0
+        else dict.fromkeys(slider_categories, 1 / len(slider_categories))
+    )
 
     raw_weights: dict[str, int] = {
         category: st.sidebar.slider(
-            CATEGORY_LABELS.get(category, category),
+            f"{CATEGORY_LABELS.get(category, category)} {prior_percentages[category]:.0%}",
             min_value=SLIDER_MIN,
             max_value=SLIDER_MAX,
             value=DEFAULT_SLIDER_VALUE,
@@ -152,21 +352,20 @@ def render_weight_sliders(available_categories: list[str]) -> dict[str, float]:
         for category in slider_categories
     }
 
+    if st.sidebar.button("Reset to equal weights", type="tertiary"):
+        st.session_state["reset_weights_pending"] = True
+        # The sliders above already rendered with this run's (pre-reset)
+        # values; force an immediate rerun so the reset is reflected now
+        # instead of looking like it takes an extra click.
+        st.rerun()
+
     total = sum(raw_weights.values())
     if total == 0:
         # Every slider dragged to 0 at once: fall back to equal weights
         # rather than dividing by zero and feeding compute_overall_score a
         # composite that's NaN for every region.
-        weights = dict.fromkeys(slider_categories, 1 / len(slider_categories))
-    else:
-        weights = {category: value / total for category, value in raw_weights.items()}
-
-    for category in slider_categories:
-        st.sidebar.caption(
-            f"{CATEGORY_LABELS.get(category, category)}: {weights[category]:.0%}"
-        )
-
-    return weights
+        return dict.fromkeys(slider_categories, 1 / len(slider_categories))
+    return {category: value / total for category, value in raw_weights.items()}
 
 
 def load_overall_feature_collection(engine: Engine, weights: dict[str, float]) -> dict:
@@ -208,6 +407,25 @@ def render_map(feature_collection: dict) -> None:
         tooltip={"text": "{name}\n{score_label}"},
     )
     st.pydeck_chart(deck, width="stretch")
+    render_legend()
+
+
+def render_legend() -> None:
+    """The map's blue-gray-orange gradient, with tick labels, so a viewer
+    doesn't have to guess which end of the color scale is "better" — the
+    same _COLOR_STOPS the map itself uses (colors.legend_gradient_css),
+    so this can never visually disagree with the choropleth.
+    """
+    st.html("""
+        <div class="bk-legend">
+            <div class="bk-legend-bar"></div>
+            <div class="bk-legend-labels">
+                <span>0.0 worse</span>
+                <span>0.5 avg</span>
+                <span>1.0 better</span>
+            </div>
+        </div>
+    """)
 
 
 def render_score_table(feature_collection: dict) -> None:
@@ -219,22 +437,49 @@ def render_score_table(feature_collection: dict) -> None:
         # the best nor the worst score, so it shouldn't rank as either.
         key=lambda p: (p["category_score"] is None, -(p["category_score"] or 0)),
     )
-    st.dataframe(
-        [{"Buurt": r["name"], "Score": r["score_label"]} for r in rows_sorted],
-        width="stretch",
-        hide_index=True,
+    rows_with_bars = scale_bar_widths(rows_sorted)
+
+    real_scores = [
+        r["category_score"] for r in rows_sorted if r["category_score"] is not None
+    ]
+    range_label = (
+        f"bar: {min(real_scores):.2f}-{max(real_scores):.2f}" if real_scores else ""
     )
+
+    st.html(f"""
+        <div class="bk-rank-header">
+            <span class="bk-section-label" style="margin:0;">Ranked buurten</span>
+            <span class="bk-rank-range">{range_label}</span>
+        </div>
+    """)
+
+    row_html = []
+    for rank, row in enumerate(rows_with_bars, start=1):
+        bar_pct = row["bar_pct"]
+        bar_style = (
+            f"width:{bar_pct:.0f}%;background:{row['color_hex']};"
+            if bar_pct is not None
+            else "width:0%;"
+        )
+        row_html.append(
+            '<div class="bk-rank-row">'
+            f'<span class="bk-rank-num">{rank}</span>'
+            f'<span class="bk-rank-dot" style="background:{row["color_hex"]}"></span>'
+            f'<span class="bk-rank-name">{html.escape(row["name"])}</span>'
+            '<span class="bk-rank-bar-track">'
+            f'<span class="bk-rank-bar-fill" style="{bar_style}"></span>'
+            "</span>"
+            f'<span class="bk-rank-score">{row["score_label"]}</span>'
+            "</div>"
+        )
+    st.html(f'<div class="bk-rank-table">{"".join(row_html)}</div>')
 
 
 def main() -> None:
     st.set_page_config(page_title="buurtkompas", layout="wide")
-    st.title("buurtkompas — Eindhoven neighborhood comparison")
-    st.caption(
-        "Category scores are percentile ranks within the region's own "
-        "gemeente (1.0 = best, 0.0 = worst). Gray / N/A means the buurt "
-        "didn't clear the minimum data-coverage threshold for this "
-        "category — see the project README for the scoring methodology."
-    )
+    inject_custom_css()
+    render_sidebar_brand()
+    render_header()
 
     categories = load_categories()
     if not categories:
@@ -244,33 +489,38 @@ def main() -> None:
         )
         return
 
-    st.sidebar.divider()
-    st.sidebar.subheader("Commute time")
-    address = st.sidebar.text_input(
-        "Destination address", placeholder="e.g. Eindhoven Centraal Station"
-    )
-    # A button, not a call on every keystroke: text_input reruns the script
-    # on each character typed, and this lookup burns real ORS API quota.
-    if st.sidebar.button("Compute commute time") and address.strip():
-        try:
-            st.session_state["commute_scores"] = load_commute_scores(address.strip())
-            st.session_state["commute_address"] = address.strip()
-            st.session_state.pop("commute_error", None)
-        except RuntimeError as exc:  # ORS_API_KEY not set
-            st.session_state.pop("commute_scores", None)
-            st.session_state["commute_error"] = str(exc)
-        except ValueError as exc:  # address not recognized by ORS
-            st.session_state.pop("commute_scores", None)
-            st.session_state["commute_error"] = str(exc)
-        except requests.RequestException:  # ORS unreachable, timed out, 4xx/5xx
-            st.session_state.pop("commute_scores", None)
-            st.session_state["commute_error"] = (
-                "Couldn't reach the routing service (ORS). Please try again "
-                "in a moment."
-            )
+    with st.sidebar.container(key="commute_section"):
+        st.html(
+            '<p class="bk-section-label bk-section-label--accent">📍 Commute time · overlay</p>'
+        )
+        address = st.text_input(
+            "Destination address", placeholder="e.g. Eindhoven Centraal Station"
+        )
+        # A button, not a call on every keystroke: text_input reruns the
+        # script on each character typed, and this lookup burns real ORS
+        # API quota.
+        if st.button("Compute commute time", type="primary") and address.strip():
+            try:
+                st.session_state["commute_scores"] = load_commute_scores(
+                    address.strip()
+                )
+                st.session_state["commute_address"] = address.strip()
+                st.session_state.pop("commute_error", None)
+            except RuntimeError as exc:  # ORS_API_KEY not set
+                st.session_state.pop("commute_scores", None)
+                st.session_state["commute_error"] = str(exc)
+            except ValueError as exc:  # address not recognized by ORS
+                st.session_state.pop("commute_scores", None)
+                st.session_state["commute_error"] = str(exc)
+            except requests.RequestException:  # ORS unreachable, timed out, 4xx/5xx
+                st.session_state.pop("commute_scores", None)
+                st.session_state["commute_error"] = (
+                    "Couldn't reach the routing service (ORS). Please try again "
+                    "in a moment."
+                )
 
-    if st.session_state.get("commute_error"):
-        st.sidebar.error(st.session_state["commute_error"])
+        if st.session_state.get("commute_error"):
+            st.error(st.session_state["commute_error"])
 
     options = [OVERALL_CATEGORY, *categories]
     if "commute_scores" in st.session_state:
@@ -306,7 +556,6 @@ def main() -> None:
     with col_map:
         render_map(feature_collection)
     with col_table:
-        st.subheader("Ranked buurten")
         render_score_table(feature_collection)
 
 

@@ -15,6 +15,7 @@ from buurtkompas.dashboard.data import (
     compute_overall_score,
     compute_view_state,
     merge_region_scores,
+    scale_bar_widths,
 )
 
 ALL_CATEGORIES = ["schools", "amenities", "quiet_nature", "housing", "income", "safety"]
@@ -288,3 +289,59 @@ def test_compute_overall_score_covers_every_input_region():
     result = compute_overall_score(df, weights)
 
     assert set(result.index) == {"BU_A", "BU_B"}
+
+
+def test_build_feature_collection_includes_a_hex_dot_color():
+    rows = [_row("BU1", "Centrum", 0.8, (5.4, 51.4))]
+    fc = build_feature_collection(rows)
+    props = fc["features"][0]["properties"]
+    assert props["color_hex"].startswith("#")
+    assert len(props["color_hex"]) == 7
+
+
+def test_scale_bar_widths_scales_to_shown_rows_not_full_range():
+    # All three scores are clustered near the top of [0, 1] -- against the
+    # full range they'd all render as near-full bars; scaled to just these
+    # rows, the spread should be visible (0%, 50%, 100%).
+    rows = [
+        {"category_score": 0.90},
+        {"category_score": 0.95},
+        {"category_score": 1.00},
+    ]
+
+    result = scale_bar_widths(rows)
+
+    assert [r["bar_pct"] for r in result] == pytest.approx([0.0, 50.0, 100.0])
+
+
+def test_scale_bar_widths_none_score_gets_none_bar_pct():
+    rows = [{"category_score": 0.5}, {"category_score": None}]
+
+    result = scale_bar_widths(rows)
+
+    assert result[0]["bar_pct"] == 100.0  # sole real score -> top of its own range
+    assert result[1]["bar_pct"] is None
+
+
+def test_scale_bar_widths_all_none_stays_none():
+    rows = [{"category_score": None}, {"category_score": None}]
+
+    result = scale_bar_widths(rows)
+
+    assert all(r["bar_pct"] is None for r in result)
+
+
+def test_scale_bar_widths_tied_scores_get_full_bar_not_divide_by_zero():
+    rows = [{"category_score": 0.7}, {"category_score": 0.7}]
+
+    result = scale_bar_widths(rows)
+
+    assert all(r["bar_pct"] == 100.0 for r in result)
+
+
+def test_scale_bar_widths_preserves_other_fields():
+    rows = [{"category_score": 0.5, "name": "Centrum"}]
+
+    result = scale_bar_widths(rows)
+
+    assert result[0]["name"] == "Centrum"

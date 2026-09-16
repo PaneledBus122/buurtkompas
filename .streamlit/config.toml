@@ -1,0 +1,39 @@
+# Dashboard visual theme. Native Streamlit theming (this file) is preferred
+# over CSS injection wherever it can do the job — fonts, accent color, dark
+# base palette, radii, and sidebar colors are all handled here; app.py only
+# injects custom CSS for things Streamlit's theme system can't express
+# (the score-color-driven ranked-table dots/bars, the legend gradient, and
+# a couple of custom section labels).
+[theme]
+base = "dark"
+
+# One accent color, used consistently by every interactive element
+# (buttons, sliders, the active category in the selector, links) — kept
+# visually distinct from the map's own blue/orange score scale (colors.py)
+# so "this is the UI's accent" never gets confused with "this is what a
+# score means".
+primaryColor = "#2EC4B6"
+linkColor = "#2EC4B6"
+
+backgroundColor = "#0B0E14"
+secondaryBackgroundColor = "#151822"
+textColor = "#E7E9EE"
+borderColor = "#262B36"
+
+# Google Fonts, loaded natively by Streamlit (no manual @import needed):
+# Space Grotesk for headings (distinct, geometric — the "brand" feel),
+# Inter for body text (clean, highly readable at small sizes for the
+# sidebar's sliders/labels and the ranked-buurten table).
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+headingFont = "'Space Grotesk':https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap"
+
+baseRadius = "0.5rem"
+buttonRadius = "0.5rem"
+showWidgetBorder = true
+showSidebarBorder = true
+
+[theme.sidebar]
+backgroundColor = "#0F1219"
+secondaryBackgroundColor = "#1A1E29"
+borderColor = "#262B36"
+primaryColor = "#2EC4B6"

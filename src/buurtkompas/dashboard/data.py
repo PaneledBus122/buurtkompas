@@ -20,7 +20,7 @@ import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from buurtkompas.dashboard.colors import score_to_color
+from buurtkompas.dashboard.colors import score_to_color, score_to_hex
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
@@ -257,10 +257,49 @@ def build_feature_collection(rows: list[dict[str, Any]]) -> dict[str, Any]:
                     "category_score": score,
                     "score_label": "N/A" if score is None else f"{score:.2f}",
                     "fill_color": score_to_color(score),
+                    "color_hex": score_to_hex(score),
                 },
             }
         )
     return {"type": "FeatureCollection", "features": features}
+
+
+def scale_bar_widths(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Pure transform: attach a `bar_pct` (0-100) to each row, min-max
+    scaled against only the non-null `category_score` values actually
+    present in `rows` — not the full [0, 1] range. This is deliberately
+    *not* the same scale the map/legend use (those span the full 0-1
+    percentile range on purpose): the ranked-buurten table only ever shows
+    a handful of rows at a time, and if e.g. every visible row scores
+    0.90-1.00, scaling bars to [0, 1] would render them all as nearly-full
+    bars with no visible distinction between them. Scaling to the shown
+    rows' own min-max keeps that distinction visible. The printed numeric
+    score, not this bar, stays the source of truth for the actual value.
+
+    A row with `category_score` of None gets `bar_pct` of None (an
+    empty/hidden bar, not a misleading 0%-width bar that would look like
+    "measured, and worst").
+    """
+    scores = [
+        row["category_score"] for row in rows if row["category_score"] is not None
+    ]
+
+    if not scores:
+        return [{**row, "bar_pct": None} for row in rows]
+
+    lo, hi = min(scores), max(scores)
+    span = hi - lo
+
+    def _bar_pct(score: float | None) -> float | None:
+        if score is None:
+            return None
+        if span == 0:
+            # Every shown row ties -- a full bar for all of them reads
+            # better than a 0-width bar for all of them.
+            return 100.0
+        return (score - lo) / span * 100
+
+    return [{**row, "bar_pct": _bar_pct(row["category_score"])} for row in rows]
 
 
 def compute_view_state(feature_collection: dict[str, Any]) -> dict[str, float]:
