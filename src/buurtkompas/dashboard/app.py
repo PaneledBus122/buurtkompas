@@ -75,8 +75,19 @@ def get_engine() -> Engine:
     """One pooled connection per Streamlit server process, not per session —
     cache_resource (not cache_data) is what Streamlit intends for
     non-serializable, share-safe objects like a SQLAlchemy Engine.
+
+    This engine (and its pooled connections) lives for as long as the
+    Cloud Run container stays warm, which is far longer than Neon's ~5
+    minute auto-suspend window after a quiet period — without the options
+    below, a pooled connection left idle across a suspend goes stale
+    server-side, and the next checkout fails with
+    "SSL connection has been closed unexpectedly" before the real query
+    even runs. `pool_pre_ping` catches that by validating a connection on
+    checkout and transparently replacing it if it's dead; `pool_recycle`
+    (set below Neon's suspend window) recycles connections proactively so
+    most of the time pre_ping doesn't even need to catch anything.
     """
-    return create_engine(DATABASE_URL)
+    return create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=280)
 
 
 @st.cache_data(ttl=300)
