@@ -133,13 +133,11 @@ def render_contact_page() -> None:
     st.title("Contact & feedback")
     st.markdown(
         "This is a personal portfolio project, maintained by one person, "
-        "so there's no support team or ticketing system — just a couple "
-        "of direct ways to reach me:"
+        "so there's no support team or ticketing system."
     )
     st.markdown(
-        "- Found a bug, have a feature idea, or spotted something wrong "
-        "in the data? Open an issue on GitHub: [repo issues link "
-        "placeholder].\n"
-        "- Anything else? [email placeholder]."
+        "Found a bug, have a feature idea, spotted something wrong in the "
+        "data, or have any other question? Open an issue on GitHub: "
+        "https://github.com/PaneledBus122/buurtkompas/issues."
     )
     st.markdown("Response times are best-effort, since this is a side project.")
