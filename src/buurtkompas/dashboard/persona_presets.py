@@ -262,7 +262,6 @@ def render_persona_presets() -> None:
             with col:
                 if st.button(label, help=tooltip, key=f"persona_{label}"):
                     weights = compute_weights(age, children, urgency, budget)
-                    st.session_state["pending_persona_weights"] = (
-                        _weights_to_slider_values(weights)
-                    )
-                    st.rerun()
+                    # Safe only because this renders before the sidebar sliders exist in this run.
+                    for category, value in _weights_to_slider_values(weights).items():
+                        st.session_state[f"weight_{category}"] = value
