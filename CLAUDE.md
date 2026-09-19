@@ -15,7 +15,8 @@ Live dashboard: https://buurtkompas-dashboard-420148358953.europe-west4.run.app
 src/buurtkompas/
   extract/    cbs.py, politie.py, pdok.py -- CBS/PDOK pulls, write data/raw/*.csv|.geojson
   load/       loader.py (batch ETL), schema.py (SQLAlchemy Core tables)
-  dashboard/  app.py (entrypoint), data.py, colors.py, commute.py, footer.py, static_pages.py
+  dashboard/  app.py (entrypoint), data.py, colors.py, commute.py, footer.py, static_pages.py,
+              persona_presets.py (TEMPORARY persona buttons -> category-weight sliders)
 dbt/
   models/staging/       stg_dim_region.sql, stg_dim_indicator.sql, stg_fact_indicator.sql
   models/intermediate/  int_indicator_percentile.sql
@@ -23,7 +24,7 @@ dbt/
   seeds/indicator_direction.csv
   profiles.yml, dbt_project.yml
 tests/        test_cbs.py, test_politie.py, test_commute.py,
-              test_dashboard_data.py, test_dashboard_colors.py
+              test_dashboard_data.py, test_dashboard_colors.py, test_persona_presets.py
 .streamlit/config.toml   theme (accent color, fonts, dark palette) -- must ship in Docker image
 .github/workflows/       lint.yml (pytest+ruff on PR/push), deploy-cloudrun.yml (paths-filtered)
 docs/         cbs-api-notes.md, deployment.md (Cloud Run + Neon one-time setup)
