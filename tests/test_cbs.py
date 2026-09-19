@@ -22,9 +22,28 @@ def test_fetch_buurt_codes_filters_by_bu_prefix(mock_get):
         }
     )
 
-    result = cbs.fetch_buurt_codes("GM0772")
+    result = cbs.fetch_buurt_codes(["GM0772"])
 
     assert result == ["BU07720101", "BU07720102"]
+
+
+@patch("buurtkompas.extract.cbs.requests.get")
+def test_fetch_buurt_codes_queries_each_gemeente_separately(mock_get):
+    mock_get.side_effect = [
+        _mock_response({"value": [{"Identifier": "BU07720101"}]}),
+        _mock_response(
+            {"value": [{"Identifier": "WK086101"}, {"Identifier": "BU08610101"}]}
+        ),
+    ]
+
+    result = cbs.fetch_buurt_codes(["GM0772", "GM0861"])
+
+    assert result == ["BU07720101", "BU08610101"]
+    filters = [call.kwargs["params"]["$filter"] for call in mock_get.call_args_list]
+    assert filters == [
+        "DimensionGroupId eq 'GM0772'",
+        "DimensionGroupId eq 'GM0861'",
+    ]
 
 
 @patch("buurtkompas.extract.cbs.requests.get")

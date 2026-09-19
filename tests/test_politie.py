@@ -152,10 +152,12 @@ def test_extract_all_builds_long_format_dataframe(mock_fetch_codes, mock_fetch_c
 
 @patch("buurtkompas.extract.politie.fetch_crime_counts")
 @patch("buurtkompas.extract.politie.fetch_buurt_codes")
-def test_extract_all_uses_eindhoven_gemeente_code(mock_fetch_codes, mock_fetch_counts):
+def test_extract_all_uses_configured_gemeente_codes(
+    mock_fetch_codes, mock_fetch_counts
+):
     mock_fetch_codes.return_value = []
     mock_fetch_counts.return_value = []
 
     politie.extract_all()
 
-    mock_fetch_codes.assert_called_once_with(politie.GEMEENTE_CODE)
+    mock_fetch_codes.assert_called_once_with(politie.GEMEENTE_CODES)

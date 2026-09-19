@@ -1,10 +1,11 @@
-"""Extract registered-crime counts (safety indicator) for Eindhoven from the
-CBS StatLine OData v3 API, table 47018NED ("Geregistreerde misdrijven; soort
-misdrijf, wijk, buurt, jaarcijfers"), served from dataderden.cbs.nl.
+"""Extract registered-crime counts (safety indicator) for Eindhoven and
+Veldhoven from the CBS StatLine OData v3 API, table 47018NED ("Geregistreerde
+misdrijven; soort misdrijf, wijk, buurt, jaarcijfers"), served from
+dataderden.cbs.nl.
 
 This is a different API generation from the OData v4 source in cbs.py
 (85984NED): field names, response shape, and pagination-link key all
-differ, so nothing is shared beyond the Eindhoven buurt-code lookup
+differ, so nothing is shared beyond the Eindhoven/Veldhoven buurt-code lookup
 (`cbs.fetch_buurt_codes`), reused as-is to keep both sources joined against
 the same 2024-vintage region set.
 
@@ -20,7 +21,7 @@ from time import sleep
 import pandas as pd
 import requests
 
-from buurtkompas.extract.cbs import GEMEENTE_CODE, fetch_buurt_codes
+from buurtkompas.extract.cbs import GEMEENTE_CODES, fetch_buurt_codes
 
 BASE_URL = "https://dataderden.cbs.nl/ODataFeed/odata/47018NED"
 PERIOD = "2024JJ00"
@@ -97,15 +98,15 @@ def fetch_crime_counts(crime_type_code: str, region_codes: list[str]) -> list[di
 
 
 def extract_all() -> pd.DataFrame:
-    """Extract all configured crime-type measures for Eindhoven's buurten
-    into one long-format table, matching cbs.py's extract_all() column
+    """Extract all configured crime-type measures for Eindhoven's and
+    Veldhoven's buurten into one long-format table, matching cbs.py's extract_all() column
     shape so loader.py can load both sources uniformly.
 
     Values here are raw registered-crime counts, not yet normalized per
     1,000 residents — that normalization is done in dbt (see
     int_indicator_percentile.sql), which joins dim_region.population.
     """
-    region_codes = fetch_buurt_codes(GEMEENTE_CODE)
+    region_codes = fetch_buurt_codes(GEMEENTE_CODES)
 
     rows = []
     for crime_type_code, (category, label) in MEASURES.items():
