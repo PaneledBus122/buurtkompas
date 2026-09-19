@@ -30,7 +30,7 @@ import streamlit as st
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
-from buurtkompas.dashboard import commute, static_pages
+from buurtkompas.dashboard import commute, persona_presets, static_pages
 from buurtkompas.dashboard.colors import legend_gradient_css
 from buurtkompas.dashboard.data import (
     DATABASE_URL,
@@ -334,6 +334,12 @@ def render_weight_sliders(available_categories: list[str]) -> dict[str, float]:
         for category in slider_categories:
             st.session_state[f"weight_{category}"] = DEFAULT_SLIDER_VALUE
 
+    pending_persona_weights = st.session_state.pop("pending_persona_weights", None)
+    if pending_persona_weights is not None:
+        for category, value in pending_persona_weights.items():
+            if category in slider_categories:
+                st.session_state[f"weight_{category}"] = value
+
     # Read each slider's last-known value *before* instantiating the
     # widgets below, so the percentage baked into each slider's own label
     # reflects the values about to be rendered this run -- Streamlit
@@ -493,6 +499,7 @@ def render_dashboard_page(methodology_page: st.Page) -> None:
     inject_custom_css()
     render_sidebar_brand()
     render_header(methodology_page)
+    persona_presets.render_persona_presets()
 
     categories = load_categories()
     if not categories:
