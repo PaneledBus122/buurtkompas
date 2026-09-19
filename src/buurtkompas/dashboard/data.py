@@ -310,9 +310,9 @@ def compute_view_state(feature_collection: dict[str, Any]) -> dict[str, float]:
     see eindhoven-dashboard-plan.md).
 
     The zoom figure is a coarse heuristic (bigger bounding box -> zoom out
-    further), not a precise viewport-fit computation — adequate for an MVP
-    where the region set is always exactly one gemeente at a time, revisit
-    if/when the dashboard needs to fit multiple gemeenten in one view.
+    further), not a precise viewport-fit computation — checked visually to
+    fit Eindhoven + Veldhoven together (span ~0.23 degrees); revisit if the
+    region set grows well beyond that.
     """
     lons: list[float] = []
     lats: list[float] = []

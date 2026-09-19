@@ -34,7 +34,7 @@ GEOCODE_URL = "https://api.openrouteservice.org/geocode/search"
 MATRIX_URL = "https://api.openrouteservice.org/v2/matrix/driving-car"
 
 # ORS Matrix's hard cap is 3,500 origins x destinations per request. This
-# module always queries all Eindhoven buurten (116) against exactly one
+# module always queries all loaded buurten (Eindhoven + Veldhoven, 133) against exactly one
 # destination, so it never comes close — this guard is here so a future
 # change (e.g. multiple destinations) fails loudly instead of silently
 # hitting ORS's 400.

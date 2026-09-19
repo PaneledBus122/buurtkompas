@@ -226,7 +226,7 @@ def render_sidebar_brand() -> None:
             <span class="bk-brand-icon">🧭</span>
             <div>
                 <div class="bk-brand-name">buurtkompas</div>
-                <div class="bk-brand-tagline">Eindhoven &middot; Buurtvergelijker</div>
+                <div class="bk-brand-tagline">Eindhoven &amp; Veldhoven &middot; Buurtvergelijker</div>
             </div>
         </div>
     """)
@@ -240,7 +240,7 @@ def render_header(methodology_page: st.Page) -> None:
     its own page (static_pages.render_methodology_page), reachable from
     here and from the footer on every page.
     """
-    st.title("Eindhoven neighborhood comparison")
+    st.title("Eindhoven & Veldhoven neighborhood comparison")
     with st.expander("Scoring methodology"):
         st.write(
             "Category scores are percentile ranks within the region's own "

@@ -1,8 +1,10 @@
 # CLAUDE.md
 
 ## What this project is
-Buurtkompas: a data-engineering portfolio project comparing Eindhoven (NL)
-neighbourhoods (buurten) using CBS/PDOK open data. Pipeline: batch ETL -> dbt
+Buurtkompas: a data-engineering portfolio project comparing Eindhoven and
+Veldhoven (NL) neighbourhoods (buurten) using CBS/PDOK open data. Scope is
+`GEMEENTE_CODES` in `extract/cbs.py` (single source of truth; pdok.py and
+politie.py import it). Pipeline: batch ETL -> dbt
 (staging -> intermediate -> marts) -> Postgres/PostGIS (Neon, serverless with
 auto-suspend) -> Streamlit + pydeck dashboard -> Google Cloud Run (GitHub
 Actions CI/CD, Workload Identity Federation, Secret Manager for
@@ -105,6 +107,12 @@ only for the deployed app's own runtime reads.
   yet" and "Deployment: Azure (planned)". Both are wrong: the app is a
   working pipeline live on Cloud Run today. Don't trust README's Status/Tech
   stack tables — this file is the source of truth on project state.
+- **Raw filenames are stale**: `data/raw/*_eindhoven.*` now hold both
+  Eindhoven and Veldhoven rows (renaming needs matching constants in
+  `load/loader.py`). Category/overall scores are percentile-ranked *within*
+  each gemeente, but the live commute-time score (`commute.py`) is ranked
+  across all loaded buurten together, and the ranked table sorts both
+  gemeenten into one list.
 - **Neon auto-suspend**: compute suspends after ~5min idle. Any long-lived
   `create_engine()` used by a process that stays warm (i.e. anything but a
   one-shot script) needs `pool_pre_ping=True` plus a `pool_recycle` below

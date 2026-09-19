@@ -1,6 +1,8 @@
 import geopandas as gpd
 import requests
 
+from buurtkompas.extract.cbs import GEMEENTE_CODES
+
 BASE_URL = "https://service.pdok.nl/cbs/wijken-en-buurten-2024/wfs/v1_0"
 
 
@@ -35,6 +37,8 @@ features = fetch_all_buurten()
 print("전체 buurten 수:", len(features))
 
 gdf = gpd.GeoDataFrame.from_features(features, crs="EPSG:4326")
-eindhoven = gdf[gdf["gemeentecode"] == "GM0772"].copy()
-print(f"Eindhoven buurten: {len(eindhoven)}")
-eindhoven.to_file("data/raw/pdok_eindhoven_buurten.geojson", driver="GeoJSON")
+region = gdf[gdf["gemeentecode"].isin(GEMEENTE_CODES)].copy()
+print(f"Buurten in scope: {len(region)}")
+for code, count in region["gemeentecode"].value_counts().items():
+    print(f"  {code}: {count}")
+region.to_file("data/raw/pdok_eindhoven_buurten.geojson", driver="GeoJSON")

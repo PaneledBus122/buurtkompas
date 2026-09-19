@@ -1,4 +1,4 @@
-"""Extract Kerncijfers wijken en buurten indicators for Eindhoven from the CBS StatLine OData v4 API."""
+"""Extract Kerncijfers wijken en buurten indicators for Eindhoven and Veldhoven from the CBS StatLine OData v4 API."""
 
 from pathlib import Path
 
@@ -7,7 +7,7 @@ import requests
 
 BASE_URL = "https://datasets.cbs.nl/odata/v1/CBS"
 TABLE_CODE = "85984NED"
-GEMEENTE_CODE = "GM0772"  # Eindhoven
+GEMEENTE_CODES = ["GM0772", "GM0861"]  # Eindhoven, Veldhoven
 
 # measure_code -> (category, human-readable label)
 MEASURES: dict[str, tuple[str, str]] = {
@@ -29,19 +29,22 @@ MEASURES: dict[str, tuple[str, str]] = {
 POPULATION_MEASURE_CODE = "T001036"
 
 
-def fetch_buurt_codes(gemeente_code: str) -> list[str]:
-    """Return all buurt (neighborhood) codes belonging to the given gemeente."""
-    response = requests.get(
-        f"{BASE_URL}/{TABLE_CODE}/WijkenEnBuurtenCodes",
-        params={"$filter": f"DimensionGroupId eq '{gemeente_code}'"},
-    )
-    response.raise_for_status()
-    data = response.json()
-    return [
-        item["Identifier"]
-        for item in data["value"]
-        if item["Identifier"].startswith("BU")
-    ]
+def fetch_buurt_codes(gemeente_codes: list[str]) -> list[str]:
+    """Return all buurt (neighborhood) codes belonging to the given gemeenten."""
+    codes: list[str] = []
+    for gemeente_code in gemeente_codes:
+        response = requests.get(
+            f"{BASE_URL}/{TABLE_CODE}/WijkenEnBuurtenCodes",
+            params={"$filter": f"DimensionGroupId eq '{gemeente_code}'"},
+        )
+        response.raise_for_status()
+        data = response.json()
+        codes.extend(
+            item["Identifier"]
+            for item in data["value"]
+            if item["Identifier"].startswith("BU")
+        )
+    return codes
 
 
 def fetch_observations(measure_code: str, region_codes: list[str]) -> list[dict]:
@@ -78,12 +81,12 @@ def fetch_population(region_codes: list[str]) -> dict[str, int]:
 
 
 def extract_population() -> pd.DataFrame:
-    """Extract resident population per Eindhoven buurt, as its own table
-    (region_id, population) rather than a long-format indicator row — this
-    lands on dim_region, not fact_indicator, since it's a denominator, not
-    a ranked indicator.
+    """Extract resident population per Eindhoven and Veldhoven buurt, as its
+    own table (region_id, population) rather than a long-format indicator
+    row — this lands on dim_region, not fact_indicator, since it's a
+    denominator, not a ranked indicator.
     """
-    region_codes = fetch_buurt_codes(GEMEENTE_CODE)
+    region_codes = fetch_buurt_codes(GEMEENTE_CODES)
     population = fetch_population(region_codes)
     return pd.DataFrame(
         [
@@ -94,8 +97,8 @@ def extract_population() -> pd.DataFrame:
 
 
 def extract_all() -> pd.DataFrame:
-    """Extract all configured measures for Eindhoven's buurten into one long-format table."""
-    region_codes = fetch_buurt_codes(GEMEENTE_CODE)
+    """Extract all configured measures for Eindhoven's and Veldhoven's buurten into one long-format table."""
+    region_codes = fetch_buurt_codes(GEMEENTE_CODES)
 
     rows = []
     for measure_code, (category, label) in MEASURES.items():
