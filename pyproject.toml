@@ -16,9 +16,24 @@ dependencies = [
     "psycopg2-binary>=2.9.13",
     "pydeck>=0.9.3",
     "requests>=2.34.2",
+    "sentence-transformers>=3.0.0",
     "sqlalchemy>=2.0.52",
     "streamlit>=1.63.0",
+    # Declared directly (although sentence-transformers already needs it) so
+    # the CPU-only index below applies: uv's [tool.uv.sources] only affects
+    # direct dependencies.
+    "torch>=2.4.0",
 ]
+
+# CPU-only PyTorch: the default Linux wheel pulls in CUDA libraries (GBs),
+# which the slim Cloud Run image has no use for.
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [project.scripts]
 buurtkompas = "buurtkompas:main"
