@@ -105,9 +105,10 @@ only for the deployed app's own runtime reads.
 - Commits are split by unit of work (feature / bugfix / refactor); messages
   explain *why*, not just what.
 - Branch-per-change, PR into `main`. `deploy-cloudrun.yml` auto-deploys on
-  merge only when its `paths` filter matches (dashboard code, `pyproject.toml`,
-  `uv.lock`, `Dockerfile`, or the workflow file itself) — a schema-only or
-  dbt-only change does NOT trigger a redeploy on its own.
+  merge only when its `paths` filter matches (anything under
+  `src/buurtkompas/`, `pyproject.toml`, `uv.lock`, `Dockerfile`, or the
+  workflow file itself) — a dbt-only change does NOT trigger a redeploy on its
+  own.
 - When checking a fresh merge against GitHub, use
   `raw.githubusercontent.com/<owner>/<repo>/refs/heads/main/<path>` rather
   than the `/main/` shorthand — the latter can serve a briefly stale
@@ -124,11 +125,12 @@ only for the deployed app's own runtime reads.
   each gemeente, but the live commute-time score (`commute.py`) is ranked
   across all loaded buurten together, and the ranked table sorts both
   gemeenten into one list.
-- **Deploy path filter gap**: the dashboard imports `buurtkompas.weighting`,
-  but `deploy-cloudrun.yml` only watches `src/buurtkompas/dashboard/**` (plus
-  `pyproject.toml`, `uv.lock`, `Dockerfile`, the workflow). A change confined to
-  `src/buurtkompas/weighting/` will NOT redeploy on merge; trigger the workflow
-  manually (`workflow_dispatch`) or widen the filter.
+- **Deploy path filter is deliberately broad**: `deploy-cloudrun.yml` watches
+  all of `src/buurtkompas/**` because the Dockerfile copies the whole `src/`
+  tree and the dashboard imports sibling packages (`weighting/` today, more
+  later). The trade-off is an occasional redeploy for a change the dashboard
+  doesn't use (e.g. `extract/`, `load/`); harmless, and safer than a stale
+  image.
 - **Neon auto-suspend**: compute suspends after ~5min idle. Any long-lived
   `create_engine()` used by a process that stays warm (i.e. anything but a
   one-shot script) needs `pool_pre_ping=True` plus a `pool_recycle` below
