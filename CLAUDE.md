@@ -144,7 +144,9 @@ only for the deployed app's own runtime reads.
   immediately before `st.rerun()`. The pattern used here for "reset" buttons:
   set a `*_pending` flag, call `st.rerun()`, consume the flag (mutate state)
   before the widget is created on the next run. The profile form uses the
-  same pattern with `pending_slider_weights`.
+  same handoff key (`pending_slider_weights`) but needs no `st.rerun()`: it
+  renders above the sliders in the same run, so they consume the key later in
+  that run. Keep `render_profile_form()` before `render_weight_sliders()`.
 - **CBS has two live API generations** in this codebase: `cbs.py` uses OData
   v4 (table `85984NED`, `@odata.nextLink`, JSON by default) and `politie.py`
   uses OData v3 (table `47018NED` on `dataderden.cbs.nl`, unprefixed

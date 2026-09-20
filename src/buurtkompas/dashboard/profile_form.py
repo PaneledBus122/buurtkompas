@@ -53,9 +53,12 @@ def _slider_values_for_profile(profile: UserProfile) -> dict[str, int]:
 def render_profile_form() -> None:
     """Render the profile form. On submit, compute starting weights for the
     given profile once and hand them to render_weight_sliders through the
-    "pending_slider_weights" session_state key it already consumes, then
-    rerun so the sliders pick them up. After that the sliders are ordinary
-    independent widgets again until the next submit.
+    "pending_slider_weights" session_state key it already consumes. No
+    st.rerun() is needed: this renders before the sliders in the same script
+    run, so they consume the key later in this very run. That ordering is
+    load-bearing -- keep this call above render_weight_sliders. After the
+    apply the sliders are ordinary independent widgets again until the next
+    submit.
     """
     st.write("**Tell us about your situation** (sets starting category weights)")
     with st.form("profile_form"):
@@ -98,4 +101,3 @@ def render_profile_form() -> None:
             environment=environment,
         )
         st.session_state["pending_slider_weights"] = _slider_values_for_profile(profile)
-        st.rerun()
