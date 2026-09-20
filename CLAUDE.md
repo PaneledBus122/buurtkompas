@@ -19,6 +19,9 @@ src/buurtkompas/
   load/       loader.py (batch ETL), schema.py (SQLAlchemy Core tables)
   dashboard/  app.py (entrypoint), data.py, colors.py, commute.py, footer.py, static_pages.py,
               persona_presets.py (TEMPORARY persona buttons -> category-weight sliders)
+  weighting/  engine.py -- pure, UI-free category-weighting engine (UserProfile ->
+              weights summing to 100, iterative floor-clip). Not wired into the
+              dashboard yet; persona_presets.py still has its own older copy of the tables
 dbt/
   models/staging/       stg_dim_region.sql, stg_dim_indicator.sql, stg_fact_indicator.sql
   models/intermediate/  int_indicator_percentile.sql
@@ -26,7 +29,8 @@ dbt/
   seeds/indicator_direction.csv
   profiles.yml, dbt_project.yml
 tests/        test_cbs.py, test_politie.py, test_commute.py,
-              test_dashboard_data.py, test_dashboard_colors.py, test_persona_presets.py
+              test_dashboard_data.py, test_dashboard_colors.py, test_persona_presets.py,
+              test_weighting.py
 .streamlit/config.toml   theme (accent color, fonts, dark palette) -- must ship in Docker image
 .github/workflows/       lint.yml (pytest+ruff on PR/push), deploy-cloudrun.yml (paths-filtered)
 docs/         cbs-api-notes.md, deployment.md (Cloud Run + Neon one-time setup)
