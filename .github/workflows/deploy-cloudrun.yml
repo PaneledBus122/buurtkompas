@@ -9,7 +9,10 @@ on:
   push:
     branches: [main]
     paths:
-      - "src/buurtkompas/dashboard/**"
+      # The Dockerfile copies all of src/, and the dashboard imports sibling
+      # packages (e.g. weighting/), so any change under the package changes
+      # the shipped image.
+      - "src/buurtkompas/**"
       - "pyproject.toml"
       - "uv.lock"
       - "Dockerfile"
