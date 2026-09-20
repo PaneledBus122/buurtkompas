@@ -1,0 +1,221 @@
+import itertools
+
+import pytest
+
+from buurtkompas.weighting import engine
+from buurtkompas.weighting.engine import (
+    AGE_DELTAS,
+    BASE_WEIGHTS,
+    BUDGET_DELTAS,
+    CHILDREN_DELTAS,
+    ENVIRONMENT_DELTAS,
+    FLOOR,
+    TOTAL,
+    URGENCY_DELTAS,
+    AgeGroup,
+    AxisGains,
+    BudgetSensitivity,
+    EnvironmentPreference,
+    RelocationUrgency,
+    UserProfile,
+    _floor_clip_and_renormalize,
+    compute_weights,
+)
+
+CATEGORY_ORDER = list(BASE_WEIGHTS)
+
+# The reference values were rounded to one decimal, so allow +/-0.1 inclusive;
+# the epsilon only absorbs float error at exactly 0.1 (see FIFTIES persona).
+PERSONA_TOLERANCE = 0.1 + 1e-9
+
+# (age, has_children, urgency, budget) -> schools, amenities, quiet_nature,
+# housing, income, safety. Environment is always MIXED, gains all 1.0.
+#
+# The FIFTIES/children/LOW/FLEXIBLE row lists income as 2.9: that figure came
+# from clipping once and dividing by the total, which leaves income below
+# FLOOR. The iterative helper pins it at exactly 3.0, which is within
+# tolerance and satisfies the floor invariant.
+PERSONAS = [
+    (AgeGroup.TWENTIES, False, RelocationUrgency.HIGH, BudgetSensitivity.TIGHT)
+    + ([7.9, 25.7, 3.0, 19.8, 22.8, 20.8],),
+    (AgeGroup.THIRTIES, True, RelocationUrgency.LOW, BudgetSensitivity.MODERATE)
+    + ([21.0, 23.0, 14.0, 16.0, 5.0, 21.0],),
+    (AgeGroup.FORTIES, False, RelocationUrgency.LOW, BudgetSensitivity.FLEXIBLE)
+    + ([18.0, 24.0, 18.0, 9.0, 10.0, 21.0],),
+    (AgeGroup.FIFTIES, True, RelocationUrgency.LOW, BudgetSensitivity.FLEXIBLE)
+    + ([21.6, 23.5, 19.6, 10.8, 2.9, 21.6],),
+    (AgeGroup.SIXTIES, False, RelocationUrgency.LOW, BudgetSensitivity.FLEXIBLE)
+    + ([14.0, 22.0, 21.0, 10.0, 11.0, 22.0],),
+    (AgeGroup.SEVENTIES_PLUS, False, RelocationUrgency.LOW, BudgetSensitivity.TIGHT)
+    + ([9.0, 15.0, 13.0, 23.0, 21.0, 19.0],),
+    (AgeGroup.TWENTIES, False, RelocationUrgency.LOW, BudgetSensitivity.FLEXIBLE)
+    + ([15.0, 28.0, 14.0, 8.0, 12.0, 23.0],),
+    (AgeGroup.THIRTIES, False, RelocationUrgency.HIGH, BudgetSensitivity.TIGHT)
+    + ([10.0, 23.0, 5.0, 21.0, 21.0, 20.0],),
+    (AgeGroup.FORTIES, True, RelocationUrgency.MEDIUM, BudgetSensitivity.TIGHT)
+    + ([18.0, 21.0, 9.0, 24.0, 10.0, 18.0],),
+    (AgeGroup.FIFTIES, False, RelocationUrgency.HIGH, BudgetSensitivity.MODERATE)
+    + ([12.0, 24.0, 11.0, 14.0, 17.0, 22.0],),
+]
+
+ALL_DELTA_ROWS = [
+    (f"{table_name}[{level}]", row)
+    for table_name, table in [
+        ("age", AGE_DELTAS),
+        ("children", CHILDREN_DELTAS),
+        ("urgency", URGENCY_DELTAS),
+        ("budget", BUDGET_DELTAS),
+        ("environment", ENVIRONMENT_DELTAS),
+    ]
+    for level, row in table.items()
+]
+
+
+def _all_profiles():
+    return [
+        UserProfile(age, children, urgency, budget, environment)
+        for age, children, urgency, budget, environment in itertools.product(
+            AgeGroup,
+            (False, True),
+            RelocationUrgency,
+            BudgetSensitivity,
+            EnvironmentPreference,
+        )
+    ]
+
+
+def test_category_names_match_dashboard_category_labels():
+    from buurtkompas.dashboard.app import CATEGORY_LABELS
+
+    assert CATEGORY_ORDER == list(CATEGORY_LABELS)
+
+
+@pytest.mark.parametrize(
+    ("name", "row"), ALL_DELTA_ROWS, ids=[n for n, _ in ALL_DELTA_ROWS]
+)
+def test_every_delta_row_covers_all_categories_and_sums_to_zero(name, row):
+    assert list(row) == CATEGORY_ORDER
+    assert sum(row.values()) == pytest.approx(0.0, abs=1e-12)
+
+
+def test_default_profile_returns_base_weights_unchanged():
+    assert compute_weights(UserProfile()) == BASE_WEIGHTS
+    assert compute_weights() == BASE_WEIGHTS
+
+
+@pytest.mark.parametrize(
+    ("age", "children", "urgency", "budget", "expected"),
+    PERSONAS,
+    ids=[f"{p[0].value}-{p[1]}-{p[2].value}-{p[3].value}" for p in PERSONAS],
+)
+def test_reference_personas(age, children, urgency, budget, expected):
+    weights = compute_weights(UserProfile(age, children, urgency, budget))
+
+    for category, want in zip(CATEGORY_ORDER, expected, strict=True):
+        assert abs(weights[category] - want) <= PERSONA_TOLERANCE, category
+
+
+def test_all_324_profiles_sum_to_total_and_respect_floor():
+    profiles = _all_profiles()
+    assert len(profiles) == 6 * 2 * 3 * 3 * 3
+
+    for profile in profiles:
+        weights = compute_weights(profile)
+        assert list(weights) == CATEGORY_ORDER
+        assert sum(weights.values()) == pytest.approx(TOTAL, abs=1e-6), profile
+        assert min(weights.values()) >= FLOOR - 1e-6, profile
+
+
+def test_clip_helper_pins_multiple_categories_and_rescales_the_rest():
+    raw = {
+        "schools": 1.0,
+        "amenities": 60.0,
+        "quiet_nature": 2.0,
+        "housing": 20.0,
+        "income": 12.0,
+        "safety": 5.0,
+    }
+
+    result = _floor_clip_and_renormalize(raw)
+
+    assert sum(result.values()) == pytest.approx(TOTAL)
+    assert min(result.values()) >= FLOOR - 1e-9
+    assert result["schools"] == FLOOR
+    assert result["quiet_nature"] == FLOOR
+    # Order among the untouched categories is preserved by the shared rescale.
+    assert result["amenities"] > result["housing"] > result["income"] > result["safety"]
+
+
+def test_clip_helper_needs_a_second_pass_when_rescaling_pushes_another_below_floor():
+    # quiet_nature (3.2) starts above the floor, but absorbing the schools
+    # clip shrinks it to ~2.4, so only a second pass can pin it.
+    raw = {
+        "schools": -30.0,
+        "amenities": 80.0,
+        "quiet_nature": 3.2,
+        "housing": 15.0,
+        "income": 16.9,
+        "safety": 14.9,
+    }
+    assert sum(raw.values()) == pytest.approx(TOTAL)
+
+    result = _floor_clip_and_renormalize(raw)
+
+    assert result["schools"] == FLOOR
+    assert result["quiet_nature"] == FLOOR
+    assert sum(result.values()) == pytest.approx(TOTAL)
+    assert min(result.values()) >= FLOOR - 1e-9
+
+
+def test_clip_helper_leaves_input_without_violations_unchanged():
+    assert _floor_clip_and_renormalize(dict(BASE_WEIGHTS)) == BASE_WEIGHTS
+
+
+def test_clip_helper_raises_when_it_cannot_converge(monkeypatch):
+    monkeypatch.setattr(engine, "_MAX_CLIP_ITERATIONS", 1)
+    raw = {
+        "schools": -30.0,
+        "amenities": 80.0,
+        "quiet_nature": 3.2,
+        "housing": 15.0,
+        "income": 16.9,
+        "safety": 14.9,
+    }
+
+    with pytest.raises(RuntimeError, match="did not converge"):
+        _floor_clip_and_renormalize(raw)
+
+
+def test_all_zero_gains_reproduce_base_weights():
+    profile = UserProfile(
+        AgeGroup.SEVENTIES_PLUS,
+        True,
+        RelocationUrgency.HIGH,
+        BudgetSensitivity.TIGHT,
+        EnvironmentPreference.URBAN,
+    )
+    gains = AxisGains(age=0.0, children=0.0, urgency=0.0, budget=0.0, environment=0.0)
+
+    assert compute_weights(profile, gains) == BASE_WEIGHTS
+
+
+def test_doubling_a_gain_doubles_that_axis_contribution():
+    # FORTIES is +1 on schools and no other axis moves; nothing clips.
+    profile = UserProfile(age_group=AgeGroup.FORTIES)
+
+    normal = compute_weights(profile)["schools"] - BASE_WEIGHTS["schools"]
+    doubled = (
+        compute_weights(profile, AxisGains(age=2.0))["schools"]
+        - BASE_WEIGHTS["schools"]
+    )
+
+    assert normal == pytest.approx(1.0)
+    assert doubled == pytest.approx(2 * normal)
+
+
+def test_environment_axis_shifts_weight_between_amenities_and_quiet_nature():
+    urban = compute_weights(UserProfile(environment=EnvironmentPreference.URBAN))
+    rural = compute_weights(UserProfile(environment=EnvironmentPreference.RURAL))
+
+    assert urban["amenities"] > BASE_WEIGHTS["amenities"] > rural["amenities"]
+    assert urban["quiet_nature"] < BASE_WEIGHTS["quiet_nature"] < rural["quiet_nature"]
