@@ -30,7 +30,7 @@ import streamlit as st
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
-from buurtkompas.dashboard import commute, persona_presets, static_pages
+from buurtkompas.dashboard import commute, profile_form, static_pages
 from buurtkompas.dashboard.colors import legend_gradient_css
 from buurtkompas.dashboard.data import (
     DATABASE_URL,
@@ -334,9 +334,14 @@ def render_weight_sliders(available_categories: list[str]) -> dict[str, float]:
         for category in slider_categories:
             st.session_state[f"weight_{category}"] = DEFAULT_SLIDER_VALUE
 
-    pending_persona_weights = st.session_state.pop("pending_persona_weights", None)
-    if pending_persona_weights is not None:
-        for category, value in pending_persona_weights.items():
+    # Starting weights handed over by another part of the page (currently
+    # the profile form, which renders above these sliders). Same rule as the
+    # reset flag above: apply them here, before any slider widget exists
+    # this run, never after. After this one-time apply the sliders are
+    # ordinary independent widgets again.
+    pending_slider_weights = st.session_state.pop("pending_slider_weights", None)
+    if pending_slider_weights is not None:
+        for category, value in pending_slider_weights.items():
             if category in slider_categories:
                 st.session_state[f"weight_{category}"] = value
 
@@ -499,7 +504,7 @@ def render_dashboard_page(methodology_page: st.Page) -> None:
     inject_custom_css()
     render_sidebar_brand()
     render_header(methodology_page)
-    persona_presets.render_persona_presets()
+    profile_form.render_profile_form()
 
     categories = load_categories()
     if not categories:

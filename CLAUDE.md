@@ -18,7 +18,9 @@ src/buurtkompas/
   extract/    cbs.py, politie.py, pdok.py -- CBS/PDOK pulls, write data/raw/*.csv|.geojson
   load/       loader.py (batch ETL), schema.py (SQLAlchemy Core tables)
   dashboard/  app.py (entrypoint), data.py, colors.py, commute.py, footer.py, static_pages.py,
-              persona_presets.py (TEMPORARY persona buttons -> category-weight sliders)
+              profile_form.py (5-input form -> starting category-weight sliders)
+  weighting/  engine.py -- pure, UI-free category-weighting engine (UserProfile ->
+              weights summing to 100, iterative floor-clip); used by profile_form.py
 dbt/
   models/staging/       stg_dim_region.sql, stg_dim_indicator.sql, stg_fact_indicator.sql
   models/intermediate/  int_indicator_percentile.sql
@@ -26,7 +28,8 @@ dbt/
   seeds/indicator_direction.csv
   profiles.yml, dbt_project.yml
 tests/        test_cbs.py, test_politie.py, test_commute.py,
-              test_dashboard_data.py, test_dashboard_colors.py, test_persona_presets.py
+              test_dashboard_data.py, test_dashboard_colors.py, test_weighting.py,
+              test_profile_form.py
 .streamlit/config.toml   theme (accent color, fonts, dark palette) -- must ship in Docker image
 .github/workflows/       lint.yml (pytest+ruff on PR/push), deploy-cloudrun.yml (paths-filtered)
 docs/         cbs-api-notes.md, deployment.md (Cloud Run + Neon one-time setup)
@@ -45,6 +48,14 @@ tests (not_null/unique/relationships/accepted_values) declared in the
   `SSL connection has been closed unexpectedly` errors. `CATEGORY_LABELS`
   maps category slug -> display label; the education category's real slug is
   `"schools"`, not `"education"` — a past bug had this backwards.
+- `src/buurtkompas/dashboard/profile_form.py` — the structured profile form
+  rendered above the map. On submit it computes starting weights once via
+  `weighting.engine.compute_weights`, converts them to the sliders' 0-10 scale,
+  and stores them under `st.session_state["pending_slider_weights"]`;
+  `render_weight_sliders()` in `app.py` consumes that key before the slider
+  widgets exist. After that one-time apply the sliders are independent again,
+  and a fresh page load starts from equal weights. Its 0-10 slider constants
+  intentionally duplicate `app.py`'s (importing back would be circular).
 - `src/buurtkompas/dashboard/data.py` — DB access + pure scoring transforms:
   `fetch_category_scores()`, `compute_overall_score()` (per-region weight
   renormalization over available categories, 3-of-6 coverage gate, then
@@ -113,6 +124,11 @@ only for the deployed app's own runtime reads.
   each gemeente, but the live commute-time score (`commute.py`) is ranked
   across all loaded buurten together, and the ranked table sorts both
   gemeenten into one list.
+- **Deploy path filter gap**: the dashboard imports `buurtkompas.weighting`,
+  but `deploy-cloudrun.yml` only watches `src/buurtkompas/dashboard/**` (plus
+  `pyproject.toml`, `uv.lock`, `Dockerfile`, the workflow). A change confined to
+  `src/buurtkompas/weighting/` will NOT redeploy on merge; trigger the workflow
+  manually (`workflow_dispatch`) or widen the filter.
 - **Neon auto-suspend**: compute suspends after ~5min idle. Any long-lived
   `create_engine()` used by a process that stays warm (i.e. anything but a
   one-shot script) needs `pool_pre_ping=True` plus a `pool_recycle` below
@@ -127,7 +143,8 @@ only for the deployed app's own runtime reads.
   same script run — raises `StreamlitWidgetAlreadyInstantiatedError`, even
   immediately before `st.rerun()`. The pattern used here for "reset" buttons:
   set a `*_pending` flag, call `st.rerun()`, consume the flag (mutate state)
-  before the widget is created on the next run.
+  before the widget is created on the next run. The profile form uses the
+  same pattern with `pending_slider_weights`.
 - **CBS has two live API generations** in this codebase: `cbs.py` uses OData
   v4 (table `85984NED`, `@odata.nextLink`, JSON by default) and `politie.py`
   uses OData v3 (table `47018NED` on `dataderden.cbs.nl`, unprefixed
