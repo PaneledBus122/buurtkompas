@@ -30,7 +30,7 @@ import streamlit as st
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
-from buurtkompas.dashboard import commute, profile_form, static_pages
+from buurtkompas.dashboard import commute, nlu_form, profile_form, static_pages
 from buurtkompas.dashboard.colors import legend_gradient_css
 from buurtkompas.dashboard.data import (
     DATABASE_URL,
@@ -504,6 +504,8 @@ def render_dashboard_page(methodology_page: st.Page) -> None:
     inject_custom_css()
     render_sidebar_brand()
     render_header(methodology_page)
+    nlu_form.render_nlu_form()
+    st.divider()
     profile_form.render_profile_form()
 
     categories = load_categories()

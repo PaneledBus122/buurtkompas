@@ -18,11 +18,12 @@ src/buurtkompas/
   extract/    cbs.py, politie.py, pdok.py -- CBS/PDOK pulls, write data/raw/*.csv|.geojson
   load/       loader.py (batch ETL), schema.py (SQLAlchemy Core tables)
   dashboard/  app.py (entrypoint), data.py, colors.py, commute.py, footer.py, static_pages.py,
-              profile_form.py (5-input form -> starting category-weight sliders)
+              profile_form.py (5-input form -> starting category-weight sliders),
+              nlu_form.py (free-text box -> classifier -> the same sliders)
   weighting/  engine.py -- pure, UI-free category-weighting engine (UserProfile ->
               weights summing to 100, iterative floor-clip); used by profile_form.py
   nlu/        classifier.py -- free text -> the five UserProfile axes via a local
-              sentence-embedding model. NOT wired into the dashboard yet
+              sentence-embedding model; used by dashboard/nlu_form.py
 dbt/
   models/staging/       stg_dim_region.sql, stg_dim_indicator.sql, stg_fact_indicator.sql
   models/intermediate/  int_indicator_percentile.sql
@@ -31,7 +32,8 @@ dbt/
   profiles.yml, dbt_project.yml
 tests/        test_cbs.py, test_politie.py, test_commute.py,
               test_dashboard_data.py, test_dashboard_colors.py, test_weighting.py,
-              test_profile_form.py, test_nlu_classifier.py (loads the real model)
+              test_profile_form.py, test_nlu_form.py,
+              test_nlu_classifier.py (loads the real model)
 .streamlit/config.toml   theme (accent color, fonts, dark palette) -- must ship in Docker image
 .github/workflows/       lint.yml (pytest+ruff on PR/push), deploy-cloudrun.yml (paths-filtered)
 docs/         cbs-api-notes.md, deployment.md (Cloud Run + Neon one-time setup)
@@ -64,11 +66,24 @@ tests (not_null/unique/relationships/accepted_values) declared in the
   still does). Few-shot nearest-example matching with
   `sentence-transformers/all-MiniLM-L6-v2` on CPU: reference phrases per level,
   cosine similarity, one threshold (`_DEFAULT_THRESHOLD`), and each clause of
-  the input is matched separately. **Not wired into the dashboard yet** (no
-  text box, no `app.py` or `profile_form.py` changes). The reference phrases and
+  the input is matched separately. The reference phrases and
   threshold are tuned against the labeled sets in `tests/test_nlu_classifier.py`
   (per-axis accuracy, pooled recall / false-positive bars): re-run it after any
   phrase or model change, and keep test sentences out of the phrases.
+- `src/buurtkompas/dashboard/nlu_form.py` — the free-text box above the
+  structured form (both stay; whichever is submitted last wins). On submit it
+  classifies the text and hands the resulting slider values to
+  `render_weight_sliders()` through the same `pending_slider_weights` key as
+  `profile_form.py`, so `render_nlu_form()` must also run before
+  `render_weight_sliders()`. It shows a per-axis "What was detected" summary
+  (matched phrase and similarity, or the default used) kept in
+  `st.session_state` so it survives later reruns. **`nlu.classifier` is imported
+  lazily inside the submit handler**, never at module level or in `app.py`:
+  importing it pulls in torch (~480MiB RSS), which most sessions never need
+  (`tests/test_nlu_form.py` checks a fresh import of the dashboard loads
+  neither). A classifier failure shows an `st.error` and leaves the page usable;
+  if no axis is recognized the sliders are deliberately left unchanged, and the
+  input is capped at 500 characters.
 - `src/buurtkompas/dashboard/data.py` — DB access + pure scoring transforms:
   `fetch_category_scores()`, `compute_overall_score()` (per-region weight
   renormalization over available categories, 3-of-6 coverage gate, then
@@ -148,8 +163,8 @@ only for the deployed app's own runtime reads.
   pinned to PyTorch's CPU-only wheel index in `pyproject.toml` (the default
   Linux wheel pulls in GBs of CUDA libraries); `uv.lock` has no nvidia/triton
   packages. Even so, the Dockerfile syncs every project dependency, so the
-  deployed image already carries torch although the dashboard doesn't import
-  `nlu/` yet. The model weights are baked into the image at build time (a
+  deployed image carries torch; the dashboard only imports `nlu/` lazily, on
+  the first free-text submit (`dashboard/nlu_form.py`). The model weights are baked into the image at build time (a
   `RUN` step in the Dockerfile that loads `nlu.classifier._MODEL_NAME`, so the
   id can't drift), and `HF_HUB_OFFLINE=1` makes the running container use that
   cache without any call to Hugging Face: a warm cache alone is not enough,
@@ -166,8 +181,10 @@ only for the deployed app's own runtime reads.
   536MiB. At the old `--memory=512Mi` that is no headroom: the cgroup hit its
   limit 57 times and survived only by reclaiming torch's mapped pages (no OOM
   kill, but thrashing). `deploy-cloudrun.yml` is now `--memory=1Gi` (no limit
-  hits at 1GiB). This was resolved without wiring `nlu/` into the dashboard:
-  nothing outside `classifier.py` and its tests imports it yet. Caveats: not
+  hits at 1GiB). That was measured before `nlu/` was wired in, and holds for
+  the wired-in design: an instance only pays the ~480MiB import when the first
+  free-text submit reaches it (from any session), and the loaded model then
+  stays for the life of the instance. Caveats: not
   measured against Neon or many concurrent sessions, and the workflow sets no
   `--execution-environment`, so Cloud Run may account for mapped pages more
   strictly than a Linux cgroup; after a deploy check the revision's logs and
@@ -175,6 +192,14 @@ only for the deployed app's own runtime reads.
   raising the limit again. CI
   (`lint.yml`) installs torch and downloads the model on every run; caching
   `~/.cache/huggingface` would speed it up. Tests need network on a cold cache.
+- **Streamlit's file watcher is disabled in the image**
+  (`--server.fileWatcherType=none` in the Dockerfile `CMD`). Once `transformers`
+  is imported into the Streamlit process (first free-text submit), the watcher
+  walks every lazy `transformers.*` submodule on each rerun and logs a long run
+  of tracebacks (`No module named 'torchvision'`, `cannot import name
+  'ImageDraw'`); a container has no use for hot-reload anyway. Local
+  `streamlit run` keeps the watcher, so the same noise appears in a local dev
+  terminal after using the free-text box; it is harmless there.
 - **Neon auto-suspend**: compute suspends after ~5min idle. Any long-lived
   `create_engine()` used by a process that stays warm (i.e. anything but a
   one-shot script) needs `pool_pre_ping=True` plus a `pool_recycle` below
