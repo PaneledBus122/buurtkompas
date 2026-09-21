@@ -18,7 +18,10 @@ src/buurtkompas/
   extract/    cbs.py, politie.py, pdok.py -- CBS/PDOK pulls, write data/raw/*.csv|.geojson
   load/       loader.py (batch ETL), schema.py (SQLAlchemy Core tables)
   dashboard/  app.py (entrypoint), data.py, colors.py, commute.py, footer.py, static_pages.py,
-              profile_form.py (5-input form -> starting category-weight sliders),
+              persona_buttons.py (TEMPORARY validation UI: six category-extreme
+              personas + per-persona gain sliders -> the same sliders),
+              profile_form.py (5-input form; present but currently NOT wired into
+              render_dashboard_page, superseded by persona_buttons.py, may return),
               nlu_form.py (free-text box -> classifier -> the same sliders)
   weighting/  engine.py -- pure, UI-free category-weighting engine (UserProfile ->
               weights summing to 100, iterative floor-clip; apply_category_mentions
@@ -37,7 +40,7 @@ dbt/
   profiles.yml, dbt_project.yml
 tests/        test_cbs.py, test_politie.py, test_commute.py,
               test_dashboard_data.py, test_dashboard_colors.py, test_weighting.py,
-              test_profile_form.py, test_nlu_form.py,
+              test_profile_form.py, test_persona_buttons.py, test_nlu_form.py,
               test_nlu_classifier.py, test_category_mentions.py (both load the real model)
 .streamlit/config.toml   theme (accent color, fonts, dark palette) -- must ship in Docker image
 .github/workflows/       lint.yml (pytest+ruff on PR/push), deploy-cloudrun.yml (paths-filtered)
@@ -57,8 +60,26 @@ tests (not_null/unique/relationships/accepted_values) declared in the
   `SSL connection has been closed unexpectedly` errors. `CATEGORY_LABELS`
   maps category slug -> display label; the education category's real slug is
   `"schools"`, not `"education"` — a past bug had this backwards.
+- `src/buurtkompas/dashboard/persona_buttons.py` — **temporary validation UI**
+  that replaced `profile_form.py` in `render_dashboard_page` (below the free-text
+  box, above the sliders). One expander per scoring category, iterating
+  `weighting.engine.EXTREME_PROFILES` (never copy those tables here): a
+  description line, an "Apply this persona" button that resets that panel's five
+  `AxisGains` sliders to 1.0, and the five sliders (0-2, step 0.1). The map is
+  fed through the same `pending_slider_weights` handoff, **once per touch** (button
+  click or a gain slider's `on_change` sets `persona_apply`, consumed by
+  `take_requested_weights`): re-applying on every rerun would snap the sidebar
+  sliders back after any manual change and overwrite a free-text result. Panels
+  keep independent slider state. When a persona's target is not the largest
+  weight at the current gains (income today: amenities 30% vs 23%, because
+  amenities starts 7 points higher and the two gain the same 9 points), the panel
+  says so; the check is generic, not tied to the name "income".
+  Logic lives in plain functions over a mapping so it is unit-tested without
+  Streamlit (`tests/test_persona_buttons.py`).
 - `src/buurtkompas/dashboard/profile_form.py` — the structured profile form
-  rendered above the map. On submit it computes starting weights once via
+  (currently **not called** from `render_dashboard_page`; kept, with its tests, in
+  case it returns; `weights_to_slider_values` is still shared by the other
+  modules). On submit it computes starting weights once via
   `weighting.engine.compute_weights`, converts them to the sliders' 0-10 scale,
   and stores them under `st.session_state["pending_slider_weights"]`;
   `render_weight_sliders()` in `app.py` consumes that key before the slider
@@ -250,10 +271,14 @@ only for the deployed app's own runtime reads.
   same script run — raises `StreamlitWidgetAlreadyInstantiatedError`, even
   immediately before `st.rerun()`. The pattern used here for "reset" buttons:
   set a `*_pending` flag, call `st.rerun()`, consume the flag (mutate state)
-  before the widget is created on the next run. The profile form uses the
-  same handoff key (`pending_slider_weights`) but needs no `st.rerun()`: it
-  renders above the sliders in the same run, so they consume the key later in
-  that run. Keep `render_profile_form()` before `render_weight_sliders()`.
+  before the widget is created on the next run. The forms above the sliders
+  (`render_persona_buttons`, `render_nlu_form`, and `render_profile_form` if it
+  is wired back in) use the same handoff key (`pending_slider_weights`) but need
+  no `st.rerun()`: they render above the sliders in the same run, so the
+  sliders consume the key later in that run. Keep them before
+  `render_weight_sliders()`, and only set the key when the user acted (never
+  on every run). Resetting a widget's own key is fine right before that widget is
+  created in the same pass (as `persona_buttons` does for its gain sliders).
 - **CBS has two live API generations** in this codebase: `cbs.py` uses OData
   v4 (table `85984NED`, `@odata.nextLink`, JSON by default) and `politie.py`
   uses OData v3 (table `47018NED` on `dataderden.cbs.nl`, unprefixed
