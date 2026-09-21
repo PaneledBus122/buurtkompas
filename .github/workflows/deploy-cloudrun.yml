@@ -72,9 +72,14 @@ jobs:
           secrets: |
             DATABASE_URL=buurtkompas-database-url:latest
             ORS_API_KEY=buurtkompas-ors-api-key:latest
+          # Memory is 1Gi, not 512Mi: measured in Docker with the real
+          # dashboard and the nlu classifier in one process, the combined
+          # footprint is ~500MiB in the cgroup (~670MiB RSS), which leaves no
+          # headroom under 512Mi. See CLAUDE.md. (No comments inside `flags`:
+          # its lines are passed to gcloud verbatim.)
           flags: |
             --allow-unauthenticated
             --min-instances=0
             --max-instances=2
-            --memory=512Mi
+            --memory=1Gi
             --cpu=1
