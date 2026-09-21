@@ -69,7 +69,13 @@ tests (not_null/unique/relationships/accepted_values) declared in the
   the input is matched separately. The reference phrases and
   threshold are tuned against the labeled sets in `tests/test_nlu_classifier.py`
   (per-axis accuracy, pooled recall / false-positive bars): re-run it after any
-  phrase or model change, and keep test sentences out of the phrases.
+  phrase or model change, and keep test sentences out of the phrases. Write
+  phrases around concrete content words (`young kids`, `a newborn baby`), not
+  short first-person scaffolds (`I have kids`, `I'm a mother of ...`,
+  `I'm a single parent`): with this small model those sit close to *any* short
+  self-description clause ("I am twenty-five years old", "I am a nurse") and
+  caused `has_children` false positives. The threshold stays one shared knob;
+  fix a misfiring axis by changing its phrases.
 - `src/buurtkompas/dashboard/nlu_form.py` — the free-text box above the
   structured form (both stay; whichever is submitted last wins). On submit it
   classifies the text and hands the resulting slider values to

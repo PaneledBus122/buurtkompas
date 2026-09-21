@@ -124,20 +124,22 @@ AGE_EXAMPLES: dict[AgeGroup, list[str]] = {
 # the default (False), not a confident "no". So this axis has a single level
 # (True): it is a one-sided threshold check, not an argmax between two
 # example sets.
+# Phrases are deliberately concrete (young kids, a newborn, primary school)
+# rather than short first-person scaffolds like "I have kids" or "I'm a mother
+# of ...": those sit close to ANY short self-description clause ("I am twenty-five
+# years old", "I am a nurse", "we are a young couple") and produced false
+# positives, while phrases anchored on child-related nouns do not.
 CHILDREN_EXAMPLES: list[str] = [
-    "I have children",
-    "I have kids",
-    "we have two kids",
-    "I have a son",
-    "I have a daughter",
-    "we have a baby",
-    "we have a toddler",
-    "my kids go to school",
+    "I have two young children at home",
+    "I have three school-age kids",
+    "I have a son and a daughter",
+    "I'm raising two young kids",
+    "young kids",
+    "a newborn baby",
+    "a toddler at home",
+    "kids in primary school",
     "a good school for my child",
     "a safe place for children to grow up",
-    "I'm a father of two",
-    "I'm a mother of young children",
-    "I'm a single parent",
 ]
 
 URGENCY_EXAMPLES: dict[RelocationUrgency, list[str]] = {
