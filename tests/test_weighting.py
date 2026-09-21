@@ -11,6 +11,7 @@ from buurtkompas.weighting.engine import (
     CATEGORY_MENTION_BOOST,
     CHILDREN_DELTAS,
     ENVIRONMENT_DELTAS,
+    EXTREME_PROFILES,
     FLOOR,
     TOTAL,
     URGENCY_DELTAS,
@@ -23,6 +24,8 @@ from buurtkompas.weighting.engine import (
     _floor_clip_and_renormalize,
     apply_category_mentions,
     compute_weights,
+    describe_profile,
+    extreme_profile_for,
 )
 
 CATEGORY_ORDER = list(BASE_WEIGHTS)
@@ -319,3 +322,164 @@ def test_the_clip_helper_alone_does_not_fix_a_total_above_100():
     assert sum(_floor_clip_and_renormalize(boosted).values()) == pytest.approx(
         TOTAL + CATEGORY_MENTION_BOOST
     )
+
+
+# --- Category-maximizing ("extreme") profiles -------------------------------
+
+# Categories whose extreme profile also makes them the largest weight. Income is
+# the exception: its favourable levels (20s, urban, high urgency) lift
+# amenities more, and amenities starts 7 points higher, so at income's own
+# maximum amenities is still the top category.
+TOPS_THE_RANKING = ["schools", "amenities", "quiet_nature", "housing", "safety"]
+
+
+def test_extreme_profiles_cover_exactly_the_base_weight_categories():
+    assert list(EXTREME_PROFILES) == CATEGORY_ORDER
+    assert EXTREME_PROFILES == {c: extreme_profile_for(c) for c in CATEGORY_ORDER}
+
+
+@pytest.mark.parametrize("category", CATEGORY_ORDER)
+def test_extreme_profile_reaches_the_highest_weight_any_profile_can_give(category):
+    # The real meaning of "maximizing": nothing among all 324 profiles beats it.
+    # This also checks that choosing each axis independently is exact, i.e.
+    # that floor-clipping never makes a lower raw value end up higher.
+    best_possible = max(compute_weights(p)[category] for p in _all_profiles())
+
+    reached = compute_weights(EXTREME_PROFILES[category])[category]
+
+    assert reached == pytest.approx(best_possible, abs=1e-9)
+
+
+@pytest.mark.parametrize("category", TOPS_THE_RANKING)
+def test_extreme_profile_makes_the_category_the_strict_maximum(category):
+    weights = compute_weights(EXTREME_PROFILES[category])
+
+    others = [w for c, w in weights.items() if c != category]
+    assert weights[category] > max(others)
+
+
+def test_income_cannot_be_pushed_above_amenities_even_at_its_extreme():
+    # Pinned on purpose: a UI that promises an "income" persona must know that
+    # its breakdown is still amenities-led. If the delta tables change so this
+    # flips, update this test and the UI copy together.
+    weights = compute_weights(EXTREME_PROFILES["income"])
+
+    assert weights["amenities"] > weights["income"]
+    assert weights["income"] > weights["schools"]
+
+
+def test_schools_extreme_profile_regression():
+    profile = EXTREME_PROFILES["schools"]
+
+    assert profile == UserProfile(
+        AgeGroup.FORTIES,
+        True,
+        RelocationUrgency.LOW,
+        BudgetSensitivity.FLEXIBLE,
+        EnvironmentPreference.RURAL,
+    )
+    weights = compute_weights(profile)
+    expected = {
+        "schools": 24.0,
+        "amenities": 19.2,
+        "quiet_nature": 21.1,
+        "housing": 10.6,
+        "income": 3.0,
+        "safety": 22.1,
+    }
+    for category, want in expected.items():
+        assert weights[category] == pytest.approx(want, abs=0.1), category
+    assert weights["income"] == FLOOR  # raw -1, clipped up to the floor
+
+
+def test_housing_extreme_profile_regression_and_tie_break():
+    profile = EXTREME_PROFILES["housing"]
+
+    # 50s and 60s tie on housing (+1 each), and LOW and MEDIUM tie (0 each):
+    # the first level in each table wins.
+    assert (
+        AGE_DELTAS[AgeGroup.FIFTIES]["housing"]
+        == AGE_DELTAS[AgeGroup.SIXTIES]["housing"]
+    )
+    assert (
+        URGENCY_DELTAS[RelocationUrgency.LOW]["housing"]
+        == URGENCY_DELTAS[RelocationUrgency.MEDIUM]["housing"]
+    )
+    assert profile == UserProfile(
+        AgeGroup.FIFTIES,
+        True,
+        RelocationUrgency.LOW,
+        BudgetSensitivity.TIGHT,
+        EnvironmentPreference.RURAL,
+    )
+    weights = compute_weights(profile)
+    expected = {
+        "schools": 18.0,
+        "amenities": 13.0,
+        "quiet_nature": 15.0,
+        "housing": 26.0,
+        "income": 10.0,
+        "safety": 18.0,
+    }
+    for category, want in expected.items():
+        assert weights[category] == pytest.approx(want, abs=0.1), category
+
+
+def test_tied_profiles_agree_on_the_target_but_not_on_the_rest():
+    tied = UserProfile(
+        AgeGroup.SIXTIES,
+        True,
+        RelocationUrgency.LOW,
+        BudgetSensitivity.TIGHT,
+        EnvironmentPreference.RURAL,
+    )
+    chosen = compute_weights(EXTREME_PROFILES["housing"])
+    other = compute_weights(tied)
+
+    assert other["housing"] == pytest.approx(chosen["housing"])
+    assert other["schools"] != pytest.approx(chosen["schools"])
+
+
+def test_extreme_profile_for_an_unknown_category_is_rejected():
+    with pytest.raises(ValueError, match="Unknown category: 'nonsense'"):
+        extreme_profile_for("nonsense")
+
+
+def test_describe_profile_for_the_baseline():
+    assert describe_profile(UserProfile()) == (
+        "30s · no children · low urgency · moderate budget · mixed"
+    )
+
+
+def test_describe_profile_for_a_profile_with_children():
+    profile = UserProfile(
+        AgeGroup.FORTIES,
+        True,
+        RelocationUrgency.LOW,
+        BudgetSensitivity.FLEXIBLE,
+        EnvironmentPreference.RURAL,
+    )
+
+    assert describe_profile(profile) == (
+        "40s · has children · low urgency · flexible budget · rural"
+    )
+
+
+def test_describe_profile_for_a_profile_without_children():
+    profile = UserProfile(
+        AgeGroup.SEVENTIES_PLUS,
+        False,
+        RelocationUrgency.HIGH,
+        BudgetSensitivity.TIGHT,
+        EnvironmentPreference.URBAN,
+    )
+
+    assert describe_profile(profile) == (
+        "70s+ · no children · high urgency · tight budget · urban"
+    )
+
+
+def test_every_extreme_profile_has_its_own_description():
+    descriptions = [describe_profile(p) for p in EXTREME_PROFILES.values()]
+
+    assert len(set(descriptions)) == len(descriptions)
