@@ -41,4 +41,4 @@ ENV HF_HUB_OFFLINE=1
 ENV PORT=8080
 EXPOSE 8080
 
-CMD ["sh", "-c", "streamlit run src/buurtkompas/dashboard/app.py --server.port=${PORT} --server.address=0.0.0.0 --server.headless=true --browser.gatherUsageStats=false"]
+CMD ["sh", "-c", "streamlit run src/buurtkompas/dashboard/app.py --server.port=${PORT} --server.address=0.0.0.0 --server.headless=true --server.fileWatcherType=none --browser.gatherUsageStats=false"]

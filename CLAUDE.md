@@ -192,6 +192,14 @@ only for the deployed app's own runtime reads.
   raising the limit again. CI
   (`lint.yml`) installs torch and downloads the model on every run; caching
   `~/.cache/huggingface` would speed it up. Tests need network on a cold cache.
+- **Streamlit's file watcher is disabled in the image**
+  (`--server.fileWatcherType=none` in the Dockerfile `CMD`). Once `transformers`
+  is imported into the Streamlit process (first free-text submit), the watcher
+  walks every lazy `transformers.*` submodule on each rerun and logs a long run
+  of tracebacks (`No module named 'torchvision'`, `cannot import name
+  'ImageDraw'`); a container has no use for hot-reload anyway. Local
+  `streamlit run` keeps the watcher, so the same noise appears in a local dev
+  terminal after using the free-text box; it is harmless there.
 - **Neon auto-suspend**: compute suspends after ~5min idle. Any long-lived
   `create_engine()` used by a process that stays warm (i.e. anything but a
   one-shot script) needs `pool_pre_ping=True` plus a `pool_recycle` below
