@@ -1,4 +1,5 @@
 import itertools
+import re
 
 import pytest
 
@@ -7,6 +8,7 @@ from buurtkompas.weighting.engine import (
     AGE_DELTAS,
     BASE_WEIGHTS,
     BUDGET_DELTAS,
+    CATEGORY_MENTION_BOOST,
     CHILDREN_DELTAS,
     ENVIRONMENT_DELTAS,
     FLOOR,
@@ -19,6 +21,7 @@ from buurtkompas.weighting.engine import (
     RelocationUrgency,
     UserProfile,
     _floor_clip_and_renormalize,
+    apply_category_mentions,
     compute_weights,
 )
 
@@ -219,3 +222,100 @@ def test_environment_axis_shifts_weight_between_amenities_and_quiet_nature():
 
     assert urban["amenities"] > BASE_WEIGHTS["amenities"] > rural["amenities"]
     assert urban["quiet_nature"] < BASE_WEIGHTS["quiet_nature"] < rural["quiet_nature"]
+
+
+def _all_mention_sets():
+    return [
+        frozenset(c for i, c in enumerate(CATEGORY_ORDER) if mask >> i & 1)
+        for mask in range(2 ** len(CATEGORY_ORDER))
+    ]
+
+
+def test_no_mentions_returns_the_weights_unchanged():
+    weights = compute_weights(UserProfile(has_children=True))
+
+    assert apply_category_mentions(weights, frozenset()) == weights
+
+
+def test_a_single_mention_adds_exactly_the_boost_when_nothing_clips():
+    weights = compute_weights()  # BASE_WEIGHTS
+
+    boosted = apply_category_mentions(weights, frozenset({"safety"}))
+
+    assert boosted["safety"] == pytest.approx(
+        weights["safety"] + CATEGORY_MENTION_BOOST
+    )
+    # The points come proportionally from the other five, so their relative
+    # proportions are unchanged.
+    others = [c for c in CATEGORY_ORDER if c != "safety"]
+    reference = others[0]
+    for category in others:
+        assert boosted[category] / boosted[reference] == pytest.approx(
+            weights[category] / weights[reference]
+        )
+
+
+def test_every_profile_and_mention_combination_sums_to_total_and_respects_floor():
+    mention_sets = _all_mention_sets()
+    assert len(mention_sets) == 64
+
+    for profile in _all_profiles():
+        weights = compute_weights(profile)
+        for mentioned in mention_sets:
+            boosted = apply_category_mentions(weights, mentioned)
+            assert list(boosted) == CATEGORY_ORDER
+            assert sum(boosted.values()) == pytest.approx(TOTAL, abs=1e-6), (
+                profile,
+                mentioned,
+            )
+            assert min(boosted.values()) >= FLOOR - 1e-6, (profile, mentioned)
+
+
+def test_a_single_mention_raises_that_category_for_every_profile():
+    for profile in _all_profiles():
+        weights = compute_weights(profile)
+        for category in CATEGORY_ORDER:
+            boosted = apply_category_mentions(weights, frozenset({category}))
+            assert boosted[category] > weights[category], (profile, category)
+
+
+def test_mentioning_a_category_the_axes_already_favour_pushes_it_further():
+    # has_children already adds +6 to schools; naming schools adds the boost on top.
+    weights = compute_weights(UserProfile(has_children=True))
+
+    boosted = apply_category_mentions(weights, frozenset({"schools"}))
+
+    assert weights["schools"] > BASE_WEIGHTS["schools"]
+    assert boosted["schools"] > weights["schools"]
+
+
+def test_mentioning_every_category_leaves_the_weights_unchanged():
+    weights = compute_weights(UserProfile(has_children=True))
+
+    assert apply_category_mentions(weights, frozenset(CATEGORY_ORDER)) == weights
+
+
+def test_mentions_do_not_mutate_the_input():
+    weights = compute_weights()
+    before = dict(weights)
+
+    apply_category_mentions(weights, frozenset({"safety", "schools"}))
+
+    assert weights == before
+
+
+def test_an_unknown_category_is_rejected_not_silently_dropped():
+    with pytest.raises(ValueError, match=re.escape("Unknown categories: ['nonsense']")):
+        apply_category_mentions(compute_weights(), frozenset({"safety", "nonsense"}))
+
+
+def test_the_clip_helper_alone_does_not_fix_a_total_above_100():
+    # Why apply_category_mentions is zero-sum instead of "+boost, then clip":
+    # with every value at or above FLOOR the helper returns its input as is.
+    weights = compute_weights()
+    boosted = dict(weights)
+    boosted["safety"] += CATEGORY_MENTION_BOOST
+
+    assert sum(_floor_clip_and_renormalize(boosted).values()) == pytest.approx(
+        TOTAL + CATEGORY_MENTION_BOOST
+    )

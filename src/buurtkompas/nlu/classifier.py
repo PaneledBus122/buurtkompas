@@ -4,9 +4,12 @@ Uses sentence-transformers/all-MiniLM-L6-v2 (Apache 2.0) for few-shot
 nearest-example classification: a handful of example phrases per axis level
 are embedded once, the input text is embedded the same way, and cosine
 similarity picks the level whose best-matching example is closest -- or None
-("not mentioned") if nothing clears the similarity threshold. This module
-only classifies; it never computes or adjusts weighting numbers -- those
-always come from buurtkompas.weighting.engine.compute_weights().
+("not mentioned") if nothing clears the similarity threshold. A second,
+independent question is answered by detect_mentioned_categories(): which of
+the six scoring categories the text names outright. This module only
+classifies; it never computes or adjusts weighting numbers -- those always
+come from buurtkompas.weighting.engine (compute_weights and
+apply_category_mentions). Everything shares one model instance, _get_model().
 
 No Streamlit and no network calls at inference time: the model runs locally
 on CPU (weights are downloaded once, on first load).
@@ -22,6 +25,7 @@ from sentence_transformers import SentenceTransformer, util
 from torch import Tensor
 
 from buurtkompas.weighting.engine import (
+    BASE_WEIGHTS,
     AgeGroup,
     BudgetSensitivity,
     EnvironmentPreference,
@@ -124,20 +128,22 @@ AGE_EXAMPLES: dict[AgeGroup, list[str]] = {
 # the default (False), not a confident "no". So this axis has a single level
 # (True): it is a one-sided threshold check, not an argmax between two
 # example sets.
+# Phrases are deliberately concrete (young kids, a newborn, primary school)
+# rather than short first-person scaffolds like "I have kids" or "I'm a mother
+# of ...": those sit close to ANY short self-description clause ("I am twenty-five
+# years old", "I am a nurse", "we are a young couple") and produced false
+# positives, while phrases anchored on child-related nouns do not.
 CHILDREN_EXAMPLES: list[str] = [
-    "I have children",
-    "I have kids",
-    "we have two kids",
-    "I have a son",
-    "I have a daughter",
-    "we have a baby",
-    "we have a toddler",
-    "my kids go to school",
+    "I have two young children at home",
+    "I have three school-age kids",
+    "I have a son and a daughter",
+    "I'm raising two young kids",
+    "young kids",
+    "a newborn baby",
+    "a toddler at home",
+    "kids in primary school",
     "a good school for my child",
     "a safe place for children to grow up",
-    "I'm a father of two",
-    "I'm a mother of young children",
-    "I'm a single parent",
 ]
 
 URGENCY_EXAMPLES: dict[RelocationUrgency, list[str]] = {
@@ -211,6 +217,65 @@ ENVIRONMENT_EXAMPLES: dict[EnvironmentPreference, list[str]] = {
         "living close to nature",
     ],
 }
+
+# Explicit category mentions: a different question from the axes above. Not
+# "which level of an axis applies" but "does the text name this scoring
+# category at all" -- zero, one or several can be true at once, each judged on
+# its own phrases. Written about what the categories actually measure:
+#   schools      distance to school
+#   amenities    distance to supermarket, daycare, GP
+#   quiet_nature degree of urbanization (lower = quieter / greener)
+#   housing      property value, owner-occupied vs rental share (the housing
+#                stock -- NOT the user's own budget)
+#   income       average income of the area's residents (affluence -- NOT the
+#                user's own income)
+#   safety       registered crime
+# Personal money language ("affordable", "can't afford", "my salary") belongs
+# to the budget axis and is deliberately absent here: reusing it would count
+# one signal twice. Phrases are concrete noun phrases, not "I want ..." style
+# scaffolds (see CHILDREN_EXAMPLES for why).
+CATEGORY_MENTION_EXAMPLES: dict[str, list[str]] = {
+    "schools": [
+        "good schools",
+        "close to a good school",
+        "a primary school nearby",
+        "a well-regarded school",
+    ],
+    "amenities": [
+        "shops and everyday amenities",
+        "a supermarket close by",
+        "a doctor and a daycare",
+        "convenient facilities",
+    ],
+    "quiet_nature": [
+        "a quiet, green place",
+        "close to nature",
+        "not too built-up",
+        "plenty of parks and green space",
+    ],
+    "housing": [
+        "a nice housing stock",
+        "mostly owner-occupied housing",
+        "high property values",
+        "well-maintained homes",
+    ],
+    "income": [
+        "wealthy residents",
+        "a well-off crowd",
+        "high incomes",
+        "an affluent, prosperous district",
+    ],
+    "safety": [
+        "low crime",
+        "feeling safe walking around at night",
+        "no burglaries or vandalism",
+        "safe streets",
+    ],
+}
+
+# Starts equal to the axis threshold; tuned separately against
+# tests/test_category_mentions.py if the two need to differ.
+_CATEGORY_MENTION_THRESHOLD = _DEFAULT_THRESHOLD
 
 Level = AgeGroup | bool | RelocationUrgency | BudgetSensitivity | EnvironmentPreference
 
@@ -338,3 +403,40 @@ def classify(
         for axis in _AXES
     }
     return ClassificationResult(**matches)
+
+
+@lru_cache(maxsize=1)
+def _category_mention_embeddings() -> dict[str, Tensor]:
+    """Embed the category-mention phrases once. Uses the shared _get_model()
+    singleton -- a second SentenceTransformer would roughly double the model's
+    memory, which the Cloud Run limit is not sized for. Iterating BASE_WEIGHTS
+    (not the phrase dict) keeps the engine's category list canonical: a
+    missing category fails loudly here, an extra one is ignored.
+    """
+    model = _get_model()
+    return {
+        category: model.encode(
+            CATEGORY_MENTION_EXAMPLES[category], convert_to_tensor=True
+        )
+        for category in BASE_WEIGHTS
+    }
+
+
+def detect_mentioned_categories(
+    text: str, *, threshold: float = _CATEGORY_MENTION_THRESHOLD
+) -> frozenset[str]:
+    """Scoring categories the text explicitly names, judged independently:
+    zero, one or several can come back. Each category is checked against its
+    own reference phrases, over the same clause split used for the axes
+    (_chunks), and clears the bar on its own merits -- it does not have to
+    win an argmax against the other five.
+    """
+    if not text.strip():
+        return frozenset()
+
+    text_embeddings = _get_model().encode(_chunks(text), convert_to_tensor=True)
+    return frozenset(
+        category
+        for category, embeddings in _category_mention_embeddings().items()
+        if float(util.cos_sim(text_embeddings, embeddings).max()) >= threshold
+    )

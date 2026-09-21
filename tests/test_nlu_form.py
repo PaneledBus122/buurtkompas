@@ -5,16 +5,32 @@ import pytest
 from test_nlu_classifier import EVAL_SET
 
 from buurtkompas.dashboard.nlu_form import (
+    _CATEGORY_LABELS,
     _describe,
+    _describe_categories,
     _level_display,
     _nothing_detected,
+    _nothing_matched,
+    _slider_values,
+    _summary_lines,
 )
-from buurtkompas.dashboard.profile_form import _slider_values_for_profile
-from buurtkompas.nlu.classifier import AxisMatch, ClassificationResult, classify
+from buurtkompas.dashboard.profile_form import (
+    _slider_values_for_profile,
+    _weights_to_slider_values,
+)
+from buurtkompas.nlu.classifier import (
+    AxisMatch,
+    ClassificationResult,
+    classify,
+    detect_mentioned_categories,
+)
 from buurtkompas.weighting.engine import (
+    BASE_WEIGHTS,
     AgeGroup,
     BudgetSensitivity,
     UserProfile,
+    apply_category_mentions,
+    compute_weights,
 )
 
 NOT_MENTIONED = AxisMatch(level=None, similarity=0.31, matched_phrase=None)
@@ -134,3 +150,69 @@ def test_importing_the_dashboard_does_not_load_torch_or_the_classifier(module):
     ).stdout.strip()
 
     assert out == "[]"
+
+
+def test_describe_categories_says_nothing_when_no_category_was_named():
+    assert _describe_categories(frozenset()) is None
+
+
+def test_describe_categories_lists_the_named_ones_in_dashboard_order():
+    line = _describe_categories(frozenset({"safety", "schools"}))
+
+    assert line == "Also emphasized: Education, Safety"
+
+
+def test_category_labels_match_the_dashboard_labels():
+    from buurtkompas.dashboard.app import CATEGORY_LABELS
+
+    assert _CATEGORY_LABELS == CATEGORY_LABELS
+    assert list(_CATEGORY_LABELS) == list(BASE_WEIGHTS)
+
+
+def test_summary_covers_both_mechanisms_and_adds_no_extra_line_when_unneeded():
+    with_categories = _summary_lines(_result(), frozenset({"safety"}))
+    without = _summary_lines(
+        _result(has_children=AxisMatch(True, 0.7, "young kids")), frozenset()
+    )
+
+    assert with_categories[-1] == "Also emphasized: Safety"
+    assert all("Also emphasized" not in line for line in without)
+
+
+def test_nothing_matched_needs_both_mechanisms_to_come_up_empty():
+    assert _nothing_matched(_result(), frozenset()) is True
+    assert _nothing_matched(_result(), frozenset({"safety"})) is False
+    assert (
+        _nothing_matched(_result(has_children=AxisMatch(True, 0.7, "x")), frozenset())
+        is False
+    )
+    assert _summary_lines(_result(), frozenset())[0].startswith("Nothing in your")
+
+
+def test_a_category_alone_still_applies_weights():
+    # No axis detected but a category named: apply the baseline plus the boost.
+    sliders = _slider_values(UserProfile(), frozenset({"safety"}))
+
+    assert sliders["safety"] > _slider_values(UserProfile(), frozenset())["safety"]
+
+
+def test_one_text_gets_both_the_axis_effect_and_the_category_boost():
+    text = "I'm 34 with two young kids and a safe neighbourhood matters a lot to me"
+    result = classify(text)
+    mentioned = detect_mentioned_categories(text)
+    assert result.has_children.level is True
+    assert "safety" in mentioned
+
+    combined = _slider_values(result.to_profile(), mentioned)
+    axis_only = _slider_values(result.to_profile(), frozenset())
+    baseline = _slider_values(UserProfile(), frozenset())
+
+    # The axis mechanism: kids push schools up (has_children's +6 to schools).
+    assert combined["schools"] > baseline["schools"]
+    # The category mechanism: naming safety pushes it beyond what the axes
+    # alone give it.
+    assert combined["safety"] > axis_only["safety"]
+    # And it is exactly "profile weights, then the boost", nothing else.
+    assert combined == _weights_to_slider_values(
+        apply_category_mentions(compute_weights(result.to_profile()), mentioned)
+    )

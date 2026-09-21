@@ -21,8 +21,10 @@ src/buurtkompas/
               profile_form.py (5-input form -> starting category-weight sliders),
               nlu_form.py (free-text box -> classifier -> the same sliders)
   weighting/  engine.py -- pure, UI-free category-weighting engine (UserProfile ->
-              weights summing to 100, iterative floor-clip); used by profile_form.py
-  nlu/        classifier.py -- free text -> the five UserProfile axes via a local
+              weights summing to 100, iterative floor-clip; apply_category_mentions
+              boosts explicitly named categories); used by the dashboard forms
+  nlu/        classifier.py -- free text -> the five UserProfile axes, plus which
+              scoring categories the text names outright, via one local
               sentence-embedding model; used by dashboard/nlu_form.py
 dbt/
   models/staging/       stg_dim_region.sql, stg_dim_indicator.sql, stg_fact_indicator.sql
@@ -33,7 +35,7 @@ dbt/
 tests/        test_cbs.py, test_politie.py, test_commute.py,
               test_dashboard_data.py, test_dashboard_colors.py, test_weighting.py,
               test_profile_form.py, test_nlu_form.py,
-              test_nlu_classifier.py (loads the real model)
+              test_nlu_classifier.py, test_category_mentions.py (both load the real model)
 .streamlit/config.toml   theme (accent color, fonts, dark palette) -- must ship in Docker image
 .github/workflows/       lint.yml (pytest+ruff on PR/push), deploy-cloudrun.yml (paths-filtered)
 docs/         cbs-api-notes.md, deployment.md (Cloud Run + Neon one-time setup)
@@ -69,14 +71,38 @@ tests (not_null/unique/relationships/accepted_values) declared in the
   the input is matched separately. The reference phrases and
   threshold are tuned against the labeled sets in `tests/test_nlu_classifier.py`
   (per-axis accuracy, pooled recall / false-positive bars): re-run it after any
-  phrase or model change, and keep test sentences out of the phrases.
+  phrase or model change, and keep test sentences out of the phrases. Write
+  phrases around concrete content words (`young kids`, `a newborn baby`), not
+  short first-person scaffolds (`I have kids`, `I'm a mother of ...`,
+  `I'm a single parent`): with this small model those sit close to *any* short
+  self-description clause ("I am twenty-five years old", "I am a nurse") and
+  caused `has_children` false positives. The threshold stays one shared knob;
+  fix a misfiring axis by changing its phrases. The same file also has
+  `detect_mentioned_categories(text)`: which of the six *scoring categories* the
+  text names outright ("a safe neighbourhood", "good schools"), judged per
+  category (zero, one or several), on the same clause split, with the **same
+  `_get_model()` singleton** (never construct a second `SentenceTransformer`:
+  adding this detector measured +0 MiB, a second model would be ~90MiB+). Its
+  phrases (`CATEGORY_MENTION_EXAMPLES`) describe what each category actually
+  measures (schools = distance to school, housing = property stock/value/tenure,
+  income = affluence of the area, ...) and deliberately contain no personal-money
+  language ("affordable", "can't afford"): that is the budget axis, and reusing
+  it here would count one signal twice. Avoid generic words like "neighbourhood"
+  or "house" in those phrases; they made unrelated sentences fire. Tuned against
+  `tests/test_category_mentions.py`.
 - `src/buurtkompas/dashboard/nlu_form.py` — the free-text box above the
   structured form (both stay; whichever is submitted last wins). On submit it
   classifies the text and hands the resulting slider values to
   `render_weight_sliders()` through the same `pending_slider_weights` key as
   `profile_form.py`, so `render_nlu_form()` must also run before
-  `render_weight_sliders()`. It shows a per-axis "What was detected" summary
-  (matched phrase and similarity, or the default used) kept in
+  `render_weight_sliders()`. One submission runs two independent mechanisms:
+  the 5-axis profile (`compute_weights`) and the category mentions
+  (`apply_category_mentions`, +`CATEGORY_MENTION_BOOST` points to each named
+  category, taken proportionally from the others), so "two young kids and a
+  safe neighbourhood matters a lot" gets both the kids effect and a direct
+  safety boost. It shows a per-axis "What was detected" summary
+  (matched phrase and similarity, or the default used) plus an "Also
+  emphasized: ..." line when a category was named, kept in
   `st.session_state` so it survives later reruns. **`nlu.classifier` is imported
   lazily inside the submit handler**, never at module level or in `app.py`:
   importing it pulls in torch (~480MiB RSS), which most sessions never need
@@ -192,6 +218,13 @@ only for the deployed app's own runtime reads.
   raising the limit again. CI
   (`lint.yml`) installs torch and downloads the model on every run; caching
   `~/.cache/huggingface` would speed it up. Tests need network on a cold cache.
+- **`_floor_clip_and_renormalize` does NOT renormalize a total that is not 100
+  unless something is below `FLOOR`**: with every value above the floor it
+  returns its input untouched (a dict summing to 110 comes back summing to 110).
+  `compute_weights` only stays at 100 because every axis delta row sums to zero.
+  Anything that adds weight must therefore be zero-sum itself, like
+  `apply_category_mentions` (boost minus the same points taken from the others);
+  `test_the_clip_helper_alone_does_not_fix_a_total_above_100` pins this.
 - **Streamlit's file watcher is disabled in the image**
   (`--server.fileWatcherType=none` in the Dockerfile `CMD`). Once `transformers`
   is imported into the Streamlit process (first free-text submit), the watcher

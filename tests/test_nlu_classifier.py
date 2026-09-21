@@ -134,6 +134,22 @@ EVAL_SET: LabeledSet = [
     ("asdf qwerty", {}),
     ("The apartment is 65 square metres", {}),
     ("I live at number 42 on the main road", {}),
+    # Regression: generic first-person self-description that does NOT mention
+    # children. It used to trip has_children through phrases shaped like
+    # "I'm a mother of ..." / "I'm a single parent" / "we have two kids".
+    (
+        (
+            "I am twenty-five years old and planning to find a job. "
+            "I am looking for an apartment with good access to the city centre."
+        ),
+        {
+            "age_group": AgeGroup.TWENTIES,
+            "environment": EnvironmentPreference.URBAN,
+        },
+    ),
+    ("I am twenty-three years old and single", {"age_group": AgeGroup.TWENTIES}),
+    ("We are a young couple looking for our first apartment", {}),
+    ("I am a nurse and I work night shifts at the hospital", {}),
 ]
 
 HELDOUT_SET: LabeledSet = [
@@ -314,6 +330,28 @@ def test_clear_examples_reach_every_level(axis, text, expected):
 
     assert match.level == expected, match
     assert match.matched_phrase is not None
+
+
+# Generic self-description with no mention of children. Passing at 0.48 against
+# a 0.50 threshold is luck: a slightly different wording tipped a real report
+# over the line, so require a real margin, not just "None".
+CHILDREN_MARGIN = 0.05
+GENERIC_SELF_DESCRIPTIONS = [
+    "I am twenty-five years old and planning to find a job",
+    "I am twenty-five years old",
+    "I am twenty-eight years old and I work in IT",
+    "I am forty years old and I just got divorced",
+    "I am single",
+    "I am a teacher and I love cycling",
+]
+
+
+@pytest.mark.parametrize("text", GENERIC_SELF_DESCRIPTIONS)
+def test_generic_self_description_stays_clear_of_the_children_threshold(text):
+    match = classify(text).has_children
+
+    assert match.level is None, match
+    assert match.similarity <= classifier._DEFAULT_THRESHOLD - CHILDREN_MARGIN, match
 
 
 def test_classify_is_deterministic():

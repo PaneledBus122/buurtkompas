@@ -214,3 +214,46 @@ def compute_weights(
         for category in raw:
             raw[category] += gain * deltas[category]
     return _floor_clip_and_renormalize(raw)
+
+
+# Percentage points added to each explicitly mentioned category. A starting
+# heuristic, not derived from data: roughly the size of the largest single axis
+# delta (budget's +8 to housing), on the reasoning that stating a category
+# outright is at least as strong a signal as an indirect demographic
+# correlation. One shared number, like the axis gains, not one per category.
+CATEGORY_MENTION_BOOST = 10.0
+
+
+def apply_category_mentions(
+    weights: dict[str, float], mentioned: frozenset[str] | set[str]
+) -> dict[str, float]:
+    """Boost each explicitly mentioned category by CATEGORY_MENTION_BOOST
+    points, taking those points proportionally from the categories that were
+    not mentioned, so the total stays at TOTAL.
+
+    Meant to run on compute_weights()'s output (which sums to TOTAL). It is
+    zero-sum on purpose, like every axis delta row. Do not rely on
+    _floor_clip_and_renormalize to fix the total for you: it only rescales
+    when a value is below FLOOR, and returns an input whose values are all
+    above FLOOR untouched, so a plain "+10 then clip" would come back summing
+    to 110. It is still the final guard here, for the case where taking the
+    points would push an unmentioned category under FLOOR.
+
+    If every category is mentioned there is nothing to take from and the
+    weights come back unchanged. Unknown category names raise ValueError
+    instead of being silently dropped.
+    """
+    unknown = set(mentioned) - set(weights)
+    if unknown:
+        raise ValueError(f"Unknown categories: {sorted(unknown)}")
+    others = [c for c in weights if c not in mentioned]
+    if not mentioned or not others:
+        return dict(weights)
+
+    others_total = sum(weights[c] for c in others)
+    keep = 1 - CATEGORY_MENTION_BOOST * len(mentioned) / others_total
+    raw = {
+        c: weights[c] + CATEGORY_MENTION_BOOST if c in mentioned else weights[c] * keep
+        for c in weights
+    }
+    return _floor_clip_and_renormalize(raw)
