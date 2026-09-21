@@ -157,11 +157,22 @@ only for the deployed app's own runtime reads.
   mode is set. Keep that env var and the bake step together; if you ever add a
   non-root `USER`, the cache path (`~/.cache/huggingface`) changes with the
   user. Wiring `nlu/` in still means a slower cold start (importing torch takes
-  ~5s) and more memory: importing the classifier peaks around 480MB RSS and
-  loading + classifying around 570MB, against `--memory=512Mi` in
-  `deploy-cloudrun.yml`. That standalone check fits under a 512MB cgroup (torch's
-  pages are mostly reclaimable), but the whole Streamlit app on top was not
-  measured; measure it and likely raise the memory before wiring `nlu/` in. CI
+  ~5-8s). **Memory, measured in Docker against a local Postgres:** the dashboard
+  alone after one session is ~147MiB in the cgroup (~190MiB RSS); the classifier
+  alone is ~480MiB RSS after import and ~575MiB after the first call (later
+  calls cost nothing more, no leak); dashboard + classifier in one Streamlit
+  process is ~490-503MiB in the cgroup (655-669MiB RSS), and ~12MiB more per
+  extra session. Loaded as a separate process in the same cgroup it peaked at
+  536MiB. At the old `--memory=512Mi` that is no headroom: the cgroup hit its
+  limit 57 times and survived only by reclaiming torch's mapped pages (no OOM
+  kill, but thrashing). `deploy-cloudrun.yml` is now `--memory=1Gi` (no limit
+  hits at 1GiB). This was resolved without wiring `nlu/` into the dashboard:
+  nothing outside `classifier.py` and its tests imports it yet. Caveats: not
+  measured against Neon or many concurrent sessions, and the workflow sets no
+  `--execution-environment`, so Cloud Run may account for mapped pages more
+  strictly than a Linux cgroup; after a deploy check the revision's logs and
+  memory metric, and if it looks off, first re-check this measurement before
+  raising the limit again. CI
   (`lint.yml`) installs torch and downloads the model on every run; caching
   `~/.cache/huggingface` would speed it up. Tests need network on a cold cache.
 - **Neon auto-suspend**: compute suspends after ~5min idle. Any long-lived
