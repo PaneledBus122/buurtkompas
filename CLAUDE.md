@@ -22,7 +22,10 @@ src/buurtkompas/
               nlu_form.py (free-text box -> classifier -> the same sliders)
   weighting/  engine.py -- pure, UI-free category-weighting engine (UserProfile ->
               weights summing to 100, iterative floor-clip; apply_category_mentions
-              boosts explicitly named categories); used by the dashboard forms
+              boosts explicitly named categories; EXTREME_PROFILES / describe_profile
+              give the axis combination that maximizes each category, derived from
+              the delta tables, never copied: for the planned per-category buttons.
+              Income's extreme still ranks below amenities); used by the dashboard forms
   nlu/        classifier.py -- free text -> the five UserProfile axes, plus which
               scoring categories the text names outright, via one local
               sentence-embedding model; used by dashboard/nlu_form.py

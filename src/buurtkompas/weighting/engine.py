@@ -257,3 +257,57 @@ def apply_category_mentions(
         for c in weights
     }
     return _floor_clip_and_renormalize(raw)
+
+
+def extreme_profile_for(category: str) -> UserProfile:
+    """The UserProfile whose axis levels each individually maximize
+    `category`'s delta, i.e. the profile that pushes that one category as high
+    as compute_weights() can.
+
+    Each axis is optimized independently and the model has no interaction
+    terms (see the module docstring), so this is exact for the raw value, and
+    a test brute-forces all 324 profiles to confirm it also gives the maximum
+    final weight. It maximizes the category's weight, not its rank: no profile
+    makes `income` outrank `amenities`, for example.
+
+    Ties within one axis's column (age 50s vs 60s for `housing`, urgency LOW
+    vs MEDIUM for `housing`) go to whichever level comes first in that axis's
+    table: arbitrary but deterministic. The targeted category's weight is the
+    same for tied levels, but every other category's is not, so do not treat
+    tied profiles as interchangeable when showing the full breakdown.
+    """
+    if category not in BASE_WEIGHTS:
+        raise ValueError(f"Unknown category: {category!r}")
+
+    def best(deltas):
+        return max(deltas, key=lambda level: deltas[level][category])
+
+    return UserProfile(
+        age_group=best(AGE_DELTAS),
+        has_children=best(CHILDREN_DELTAS),
+        urgency=best(URGENCY_DELTAS),
+        budget=best(BUDGET_DELTAS),
+        environment=best(ENVIRONMENT_DELTAS),
+    )
+
+
+# One ready-made profile per category, in BASE_WEIGHTS order, derived from the
+# delta tables above (never re-typed anywhere else).
+EXTREME_PROFILES: dict[str, UserProfile] = {
+    category: extreme_profile_for(category) for category in BASE_WEIGHTS
+}
+
+
+def describe_profile(profile: UserProfile) -> str:
+    """A short one-liner, e.g. '40s · has children · low urgency · flexible
+    budget · rural'. Plain text, no UI dependency, for anywhere a UserProfile
+    has to be shown to a user."""
+    return " · ".join(
+        [
+            profile.age_group.value,
+            "has children" if profile.has_children else "no children",
+            f"{profile.urgency.value} urgency",
+            f"{profile.budget.value} budget",
+            profile.environment.value,
+        ]
+    )

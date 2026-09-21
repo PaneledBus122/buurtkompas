@@ -1,6 +1,7 @@
 from buurtkompas.weighting.engine import (
     BASE_WEIGHTS,
     CATEGORY_MENTION_BOOST,
+    EXTREME_PROFILES,
     FLOOR,
     TOTAL,
     AgeGroup,
@@ -11,11 +12,14 @@ from buurtkompas.weighting.engine import (
     UserProfile,
     apply_category_mentions,
     compute_weights,
+    describe_profile,
+    extreme_profile_for,
 )
 
 __all__ = [
     "BASE_WEIGHTS",
     "CATEGORY_MENTION_BOOST",
+    "EXTREME_PROFILES",
     "FLOOR",
     "TOTAL",
     "AgeGroup",
@@ -26,4 +30,6 @@ __all__ = [
     "UserProfile",
     "apply_category_mentions",
     "compute_weights",
+    "describe_profile",
+    "extreme_profile_for",
 ]
