@@ -21,6 +21,8 @@ src/buurtkompas/
               profile_form.py (5-input form -> starting category-weight sliders)
   weighting/  engine.py -- pure, UI-free category-weighting engine (UserProfile ->
               weights summing to 100, iterative floor-clip); used by profile_form.py
+  nlu/        classifier.py -- free text -> the five UserProfile axes via a local
+              sentence-embedding model. NOT wired into the dashboard yet
 dbt/
   models/staging/       stg_dim_region.sql, stg_dim_indicator.sql, stg_fact_indicator.sql
   models/intermediate/  int_indicator_percentile.sql
@@ -29,7 +31,7 @@ dbt/
   profiles.yml, dbt_project.yml
 tests/        test_cbs.py, test_politie.py, test_commute.py,
               test_dashboard_data.py, test_dashboard_colors.py, test_weighting.py,
-              test_profile_form.py
+              test_profile_form.py, test_nlu_classifier.py (loads the real model)
 .streamlit/config.toml   theme (accent color, fonts, dark palette) -- must ship in Docker image
 .github/workflows/       lint.yml (pytest+ruff on PR/push), deploy-cloudrun.yml (paths-filtered)
 docs/         cbs-api-notes.md, deployment.md (Cloud Run + Neon one-time setup)
@@ -56,6 +58,17 @@ tests (not_null/unique/relationships/accepted_values) declared in the
   widgets exist. After that one-time apply the sliders are independent again,
   and a fresh page load starts from equal weights. Its 0-10 slider constants
   intentionally duplicate `app.py`'s (importing back would be circular).
+- `src/buurtkompas/nlu/classifier.py` — `classify(text)` maps free text to the
+  five `UserProfile` axes (`ClassificationResult.to_profile()` leaves any axis it
+  can't place at the default; it never computes weights, `compute_weights()`
+  still does). Few-shot nearest-example matching with
+  `sentence-transformers/all-MiniLM-L6-v2` on CPU: reference phrases per level,
+  cosine similarity, one threshold (`_DEFAULT_THRESHOLD`), and each clause of
+  the input is matched separately. **Not wired into the dashboard yet** (no
+  text box, no `app.py` or `profile_form.py` changes). The reference phrases and
+  threshold are tuned against the labeled sets in `tests/test_nlu_classifier.py`
+  (per-axis accuracy, pooled recall / false-positive bars): re-run it after any
+  phrase or model change, and keep test sentences out of the phrases.
 - `src/buurtkompas/dashboard/data.py` — DB access + pure scoring transforms:
   `fetch_category_scores()`, `compute_overall_score()` (per-region weight
   renormalization over available categories, 3-of-6 coverage gate, then
@@ -131,6 +144,16 @@ only for the deployed app's own runtime reads.
   later). The trade-off is an occasional redeploy for a change the dashboard
   doesn't use (e.g. `extract/`, `load/`); harmless, and safer than a stale
   image.
+- **NLU dependencies are heavy** (`sentence-transformers` + PyTorch). `torch` is
+  pinned to PyTorch's CPU-only wheel index in `pyproject.toml` (the default
+  Linux wheel pulls in GBs of CUDA libraries); `uv.lock` has no nvidia/triton
+  packages. Even so, the Dockerfile syncs every project dependency, so the
+  deployed image already carries torch although the dashboard doesn't import
+  `nlu/` yet. Before wiring it in: pre-download the model into the image at
+  build time (otherwise the first request downloads ~90MB from Hugging Face and
+  needs egress), and expect a slower cold start. CI (`lint.yml`) also installs
+  torch and downloads the model on every run; caching `~/.cache/huggingface`
+  would speed it up. Tests need network on a cold cache.
 - **Neon auto-suspend**: compute suspends after ~5min idle. Any long-lived
   `create_engine()` used by a process that stays warm (i.e. anything but a
   one-shot script) needs `pool_pre_ping=True` plus a `pool_recycle` below
