@@ -33,7 +33,7 @@ _SLIDER_MAX = 10
 _BASELINE = UserProfile()
 
 
-def _weights_to_slider_values(weights: dict[str, float]) -> dict[str, int]:
+def weights_to_slider_values(weights: dict[str, float]) -> dict[str, int]:
     """Convert a 0-100 share (summing to 100) to the sidebar sliders' 0-10
     integer scale. Only relative proportions matter -- render_weight_sliders
     renormalizes whatever ints it reads -- but the 0.3 factor keeps the
@@ -47,7 +47,7 @@ def _weights_to_slider_values(weights: dict[str, float]) -> dict[str, int]:
 
 
 def _slider_values_for_profile(profile: UserProfile) -> dict[str, int]:
-    return _weights_to_slider_values(compute_weights(profile))
+    return weights_to_slider_values(compute_weights(profile))
 
 
 def render_profile_form() -> None:

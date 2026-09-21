@@ -3,7 +3,7 @@ from test_weighting import CATEGORY_ORDER, PERSONAS
 
 from buurtkompas.dashboard.profile_form import (
     _slider_values_for_profile,
-    _weights_to_slider_values,
+    weights_to_slider_values,
 )
 from buurtkompas.weighting.engine import (
     FLOOR,
@@ -18,7 +18,7 @@ from buurtkompas.weighting.engine import (
 def test_equal_weights_map_to_equal_slider_values_in_range():
     weights = {c: 100 / 6 for c in CATEGORY_ORDER}
 
-    values = _weights_to_slider_values(weights)
+    values = weights_to_slider_values(weights)
 
     assert set(values.values()) == {5}
     assert all(0 <= v <= 10 for v in values.values())
@@ -34,7 +34,7 @@ def test_extreme_weights_clip_into_slider_range_at_both_ends():
         "safety": 1.0,
     }
 
-    values = _weights_to_slider_values(weights)
+    values = weights_to_slider_values(weights)
 
     assert values["amenities"] == 10
     assert values["quiet_nature"] == 0
@@ -45,7 +45,7 @@ def test_extreme_weights_clip_into_slider_range_at_both_ends():
 def test_slider_values_keep_exactly_the_input_keys():
     weights = dict.fromkeys(CATEGORY_ORDER, 100 / 6)
 
-    assert list(_weights_to_slider_values(weights)) == CATEGORY_ORDER
+    assert list(weights_to_slider_values(weights)) == CATEGORY_ORDER
 
 
 def test_default_profile_maps_to_the_baseline_slider_state():
@@ -88,6 +88,6 @@ def test_reference_personas_map_to_slider_values(
 ):
     profile = UserProfile(age, children, urgency, budget)
 
-    assert _slider_values_for_profile(profile) == _weights_to_slider_values(
+    assert _slider_values_for_profile(profile) == weights_to_slider_values(
         dict(zip(CATEGORY_ORDER, expected_weights, strict=True))
     )
