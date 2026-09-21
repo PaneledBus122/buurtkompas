@@ -327,9 +327,10 @@ def test_the_clip_helper_alone_does_not_fix_a_total_above_100():
 # --- Category-maximizing ("extreme") profiles -------------------------------
 
 # Categories whose extreme profile also makes them the largest weight. Income is
-# the exception: its favourable levels (20s, urban, high urgency) lift
-# amenities more, and amenities starts 7 points higher, so at income's own
-# maximum amenities is still the top category.
+# the exception: at its own extreme, income and amenities gain the same 9
+# points in total (amenities gains more from age, urgency and environment,
+# income more from the tight budget), so amenities' 7-point head start in
+# BASE_WEIGHTS decides it and amenities is still the top category.
 TOPS_THE_RANKING = ["schools", "amenities", "quiet_nature", "housing", "safety"]
 
 
