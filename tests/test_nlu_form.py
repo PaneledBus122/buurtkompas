@@ -16,7 +16,7 @@ from buurtkompas.dashboard.nlu_form import (
 )
 from buurtkompas.dashboard.profile_form import (
     _slider_values_for_profile,
-    _weights_to_slider_values,
+    weights_to_slider_values,
 )
 from buurtkompas.nlu.classifier import (
     AxisMatch,
@@ -213,6 +213,6 @@ def test_one_text_gets_both_the_axis_effect_and_the_category_boost():
     # alone give it.
     assert combined["safety"] > axis_only["safety"]
     # And it is exactly "profile weights, then the boost", nothing else.
-    assert combined == _weights_to_slider_values(
+    assert combined == weights_to_slider_values(
         apply_category_mentions(compute_weights(result.to_profile()), mentioned)
     )

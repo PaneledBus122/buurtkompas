@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 import streamlit as st
 
-from buurtkompas.dashboard.profile_form import _weights_to_slider_values
+from buurtkompas.dashboard.profile_form import weights_to_slider_values
 from buurtkompas.weighting.engine import (
     UserProfile,
     apply_category_mentions,
@@ -124,7 +124,7 @@ def _slider_values(profile: UserProfile, mentioned: frozenset[str]) -> dict[str,
     """Both mechanisms in one step: the axis profile sets the starting
     weights, then explicitly named categories are boosted on top."""
     weights = apply_category_mentions(compute_weights(profile), mentioned)
-    return _weights_to_slider_values(weights)
+    return weights_to_slider_values(weights)
 
 
 def render_nlu_form() -> None:
