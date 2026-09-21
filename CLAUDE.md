@@ -149,11 +149,21 @@ only for the deployed app's own runtime reads.
   Linux wheel pulls in GBs of CUDA libraries); `uv.lock` has no nvidia/triton
   packages. Even so, the Dockerfile syncs every project dependency, so the
   deployed image already carries torch although the dashboard doesn't import
-  `nlu/` yet. Before wiring it in: pre-download the model into the image at
-  build time (otherwise the first request downloads ~90MB from Hugging Face and
-  needs egress), and expect a slower cold start. CI (`lint.yml`) also installs
-  torch and downloads the model on every run; caching `~/.cache/huggingface`
-  would speed it up. Tests need network on a cold cache.
+  `nlu/` yet. The model weights are baked into the image at build time (a
+  `RUN` step in the Dockerfile that loads `nlu.classifier._MODEL_NAME`, so the
+  id can't drift), and `HF_HUB_OFFLINE=1` makes the running container use that
+  cache without any call to Hugging Face: a warm cache alone is not enough,
+  because `huggingface_hub` still checks the Hub on every load unless offline
+  mode is set. Keep that env var and the bake step together; if you ever add a
+  non-root `USER`, the cache path (`~/.cache/huggingface`) changes with the
+  user. Wiring `nlu/` in still means a slower cold start (importing torch takes
+  ~5s) and more memory: importing the classifier peaks around 480MB RSS and
+  loading + classifying around 570MB, against `--memory=512Mi` in
+  `deploy-cloudrun.yml`. That standalone check fits under a 512MB cgroup (torch's
+  pages are mostly reclaimable), but the whole Streamlit app on top was not
+  measured; measure it and likely raise the memory before wiring `nlu/` in. CI
+  (`lint.yml`) installs torch and downloads the model on every run; caching
+  `~/.cache/huggingface` would speed it up. Tests need network on a cold cache.
 - **Neon auto-suspend**: compute suspends after ~5min idle. Any long-lived
   `create_engine()` used by a process that stays warm (i.e. anything but a
   one-shot script) needs `pool_pre_ping=True` plus a `pool_recycle` below
