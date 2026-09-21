@@ -115,11 +115,21 @@ def render_privacy_page() -> None:
         "does not use cookies, analytics, or tracking of any kind."
     )
     st.markdown(
-        "The only personal input this app accepts is the destination "
-        "address you optionally type in for the commute-time feature. "
-        "That address is sent to a routing service (OpenRouteService) "
-        "only to compute travel times for the current session, and it is "
-        "not logged, stored, or shared anywhere by this app."
+        "This app accepts two kinds of personal input, both optional. The "
+        "first is the destination address you type in for the commute-time "
+        "feature. That address is sent to a routing service "
+        "(OpenRouteService) only to compute travel times for the current "
+        "session, and it is not logged, stored, or shared anywhere by this "
+        "app."
+    )
+    st.markdown(
+        "The second is the free-text box, where you can describe your "
+        "situation in your own words instead of using the dropdowns. That "
+        "text is processed entirely on this server by a small language "
+        "model running on its own CPU — it is never sent to an external "
+        "service (not to OpenRouteService, not to Hugging Face, not to "
+        "anyone), and it is not logged or stored anywhere. It exists only "
+        "in the app's memory while your session is open."
     )
     st.markdown(
         "All neighbourhood data shown here is public, aggregate, open "
