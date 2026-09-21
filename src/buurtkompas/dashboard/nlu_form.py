@@ -16,8 +16,12 @@ from typing import TYPE_CHECKING
 
 import streamlit as st
 
-from buurtkompas.dashboard.profile_form import _slider_values_for_profile
-from buurtkompas.weighting.engine import UserProfile
+from buurtkompas.dashboard.profile_form import _weights_to_slider_values
+from buurtkompas.weighting.engine import (
+    UserProfile,
+    apply_category_mentions,
+    compute_weights,
+)
 
 if TYPE_CHECKING:
     from buurtkompas.nlu.classifier import ClassificationResult
@@ -30,6 +34,18 @@ _AXIS_LABELS = {
     "urgency": "Urgency",
     "budget": "Budget",
     "environment": "Environment",
+}
+
+# Display names for the "also emphasized" line: same wording as app.py's
+# CATEGORY_LABELS (a test keeps them in sync; importing app here would be
+# circular), and in the engine's category order.
+_CATEGORY_LABELS = {
+    "schools": "Education",
+    "amenities": "Amenities",
+    "quiet_nature": "Quiet & Nature",
+    "housing": "Housing",
+    "income": "Income",
+    "safety": "Safety",
 }
 
 # "A sentence or two": the classifier embeds every clause of the input, so
@@ -71,6 +87,46 @@ def _describe(result: ClassificationResult) -> list[str]:
     return lines
 
 
+def _describe_categories(mentioned: frozenset[str]) -> str | None:
+    """The "also emphasized" line, or None when no category was named (so a
+    result with nothing to add stays free of a pointless "none" line)."""
+    if not mentioned:
+        return None
+    names = [label for slug, label in _CATEGORY_LABELS.items() if slug in mentioned]
+    return f"Also emphasized: {', '.join(names)}"
+
+
+def _nothing_matched(result: ClassificationResult, mentioned: frozenset[str]) -> bool:
+    """Neither mechanism found anything. Applying the baseline profile then
+    would silently move the sliders for no reason, so the caller leaves them."""
+    return _nothing_detected(result) and not mentioned
+
+
+def _summary_lines(
+    result: ClassificationResult, mentioned: frozenset[str]
+) -> list[str]:
+    """Everything the "What was detected" box shows, from both mechanisms:
+    one line per axis, plus an "Also emphasized" line only when a category was
+    named."""
+    lines = _describe(result)
+    emphasized = _describe_categories(mentioned)
+    if emphasized:
+        lines.append(emphasized)
+    if _nothing_matched(result, mentioned):
+        lines.insert(
+            0,
+            "Nothing in your description matched — the sliders were left as they are.",
+        )
+    return lines
+
+
+def _slider_values(profile: UserProfile, mentioned: frozenset[str]) -> dict[str, int]:
+    """Both mechanisms in one step: the axis profile sets the starting
+    weights, then explicitly named categories are boosted on top."""
+    weights = apply_category_mentions(compute_weights(profile), mentioned)
+    return _weights_to_slider_values(weights)
+
+
 def render_nlu_form() -> None:
     """Render the free-text box. On submit, classify the text, show what
     was detected, and apply the resulting weights through the same
@@ -96,9 +152,13 @@ def render_nlu_form() -> None:
         with st.spinner("Analyzing your description..."):
             try:
                 # Lazy on purpose: see the module docstring.
-                from buurtkompas.nlu.classifier import classify
+                from buurtkompas.nlu.classifier import (
+                    classify,
+                    detect_mentioned_categories,
+                )
 
                 result = classify(text)
+                mentioned = detect_mentioned_categories(text)
             except Exception as exc:  # heavy dependency: degrade, don't crash
                 logger.exception("Free-text classification failed")
                 st.session_state.pop(_RESULT_KEY, None)  # don't leave a stale summary
@@ -106,20 +166,11 @@ def render_nlu_form() -> None:
                     f"Couldn't analyze that text ({exc}). Try the form below instead."
                 )
             else:
-                lines = _describe(result)
-                if _nothing_detected(result):
-                    # to_profile() would be the baseline profile here, and
-                    # applying it would silently move the sliders for no reason.
-                    lines.insert(
-                        0,
-                        "Nothing in your description matched — "
-                        "the sliders were left as they are.",
+                if not _nothing_matched(result, mentioned):
+                    st.session_state["pending_slider_weights"] = _slider_values(
+                        result.to_profile(), mentioned
                     )
-                else:
-                    st.session_state["pending_slider_weights"] = (
-                        _slider_values_for_profile(result.to_profile())
-                    )
-                st.session_state[_RESULT_KEY] = lines
+                st.session_state[_RESULT_KEY] = _summary_lines(result, mentioned)
 
     # Read from session_state, not a local, so the summary survives later
     # reruns (a slider nudge) until the next classification replaces it.
