@@ -19,7 +19,7 @@ src/buurtkompas/
   load/       loader.py (batch ETL), schema.py (SQLAlchemy Core tables)
   dashboard/  app.py (entrypoint), data.py, colors.py, commute.py, footer.py, static_pages.py,
               persona_buttons.py (TEMPORARY validation UI: six category-extreme
-              personas + per-persona gain sliders -> the same sliders),
+              personas + ONE shared set of gain sliders -> the same sliders),
               profile_form.py (5-input form; present but currently NOT wired into
               render_dashboard_page, superseded by persona_buttons.py, may return),
               nlu_form.py (free-text box -> classifier -> the same sliders)
@@ -64,16 +64,33 @@ tests (not_null/unique/relationships/accepted_values) declared in the
   that replaced `profile_form.py` in `render_dashboard_page` (below the free-text
   box, above the sliders). One expander per scoring category, iterating
   `weighting.engine.EXTREME_PROFILES` (never copy those tables here): a
-  description line, an "Apply this persona" button that resets that panel's five
-  `AxisGains` sliders to 1.0, and the five sliders (0-2, step 0.1). The map is
-  fed through the same `pending_slider_weights` handoff, **once per touch** (button
-  click or a gain slider's `on_change` sets `persona_apply`, consumed by
+  description line and an "Apply this persona" button that only changes which
+  profile is active. Below all six panels, **one shared set of five `AxisGains`
+  sliders** (0-2, step 0.1) applies to whichever persona is active — clicking a
+  persona button never touches the gains. This replaced an earlier per-persona
+  design (six independent gain sets, reset to 1.0 on each button click): real use
+  showed the actual workflow is picking a real neighbourhood, flipping between
+  personas, and adjusting the shared gains while comparing each persona's
+  weights against it, which only works if the gains survive a persona switch.
+  `tests/test_persona_buttons.py` has the regression test for this (move a gain,
+  switch persona, assert the gain is unchanged), confirmed to fail against the
+  old reset-on-click behavior. The map is fed through the same
+  `pending_slider_weights` handoff, **once per touch** (button click or a gain
+  slider's `on_change` sets `persona_apply_requested`, consumed by
   `take_requested_weights`): re-applying on every rerun would snap the sidebar
-  sliders back after any manual change and overwrite a free-text result. Panels
-  keep independent slider state. When a persona's target is not the largest
-  weight at the current gains (income today: amenities 30% vs 23%, because
-  amenities starts 7 points higher and the two gain the same 9 points), the panel
-  says so; the check is generic, not tied to the name "income".
+  sliders back after any manual change and overwrite a free-text result. Each
+  panel's caption (target share, and the "doesn't come out on top" note) is
+  computed against the *current* shared gains, not a fixed default, so it
+  updates live as the gains move even while a different persona is active. When
+  a persona's target is not the largest weight at the current gains (income at
+  default gains: amenities 30% vs 23%, because amenities starts 7 points higher
+  and the two gain the same 9 points there), the panel says so; the check is
+  generic (`top_category != category`), not tied to the name "income", so which
+  category (if any) gets the note can shift as the gains move.
+  `_CATEGORY_TITLES` duplicates `app.py`'s `CATEGORY_LABELS` spelling (importing
+  it back would be circular) — a test asserts the two dicts are equal, since an
+  earlier version had guessed values ("Schools", "Area affluence") that silently
+  drifted from the sidebar's real labels ("Education", "Income").
   Logic lives in plain functions over a mapping so it is unit-tested without
   Streamlit (`tests/test_persona_buttons.py`).
 - `src/buurtkompas/dashboard/profile_form.py` — the structured profile form
@@ -277,8 +294,11 @@ only for the deployed app's own runtime reads.
   no `st.rerun()`: they render above the sliders in the same run, so the
   sliders consume the key later in that run. Keep them before
   `render_weight_sliders()`, and only set the key when the user acted (never
-  on every run). Resetting a widget's own key is fine right before that widget is
-  created in the same pass (as `persona_buttons` does for its gain sliders).
+  on every run). Resetting a widget's own key is fine right before that widget
+  is created in the same pass (`render_weight_sliders()`'s own reset button
+  does this) — but `persona_buttons.py`'s gain sliders are deliberately never
+  reset this way: their whole point, after Phase 6c, is to persist across
+  persona switches, not snap back to 1.0.
 - **CBS has two live API generations** in this codebase: `cbs.py` uses OData
   v4 (table `85984NED`, `@odata.nextLink`, JSON by default) and `politie.py`
   uses OData v3 (table `47018NED` on `dataderden.cbs.nl`, unprefixed
