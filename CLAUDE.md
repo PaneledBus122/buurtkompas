@@ -67,7 +67,13 @@ tests (not_null/unique/relationships/accepted_values) declared in the
   description line and an "Apply this persona" button that only changes which
   profile is active. Below all six panels, **one shared set of five `AxisGains`
   sliders** (0-2, step 0.1) applies to whichever persona is active — clicking a
-  persona button never touches the gains. This replaced an earlier per-persona
+  persona button never touches the gains. A "Reset gains to default" button next
+  to the sliders snaps all five back to 1.0 via `on_click=_reset_gains` (never a
+  plain post-render `if st.button(...)`, which raises
+  `StreamlitWidgetAlreadyInstantiatedError` since the sliders for this run are
+  already instantiated by then — confirmed live before settling on `on_click`)
+  and also requests a re-apply, so an already-active persona's sidebar/caption
+  numbers update in that same click rather than looking stale. This replaced an earlier per-persona
   design (six independent gain sets, reset to 1.0 on each button click): real use
   showed the actual workflow is picking a real neighbourhood, flipping between
   personas, and adjusting the shared gains while comparing each persona's

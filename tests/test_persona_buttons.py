@@ -1,4 +1,5 @@
 import pytest
+import streamlit as st
 from test_weighting import CATEGORY_ORDER
 
 from buurtkompas.dashboard import persona_buttons
@@ -8,6 +9,8 @@ from buurtkompas.dashboard.persona_buttons import (
     _APPLY_KEY,
     _CATEGORY_TITLES,
     _GAIN_AXES,
+    _GAIN_DEFAULT,
+    _reset_gains,
     _shared_gain_key,
     current_gains,
     leading_category_note,
@@ -16,7 +19,7 @@ from buurtkompas.dashboard.persona_buttons import (
 )
 from buurtkompas.dashboard.profile_form import weights_to_slider_values
 from buurtkompas.weighting import engine
-from buurtkompas.weighting.engine import EXTREME_PROFILES, AxisGains
+from buurtkompas.weighting.engine import EXTREME_PROFILES, AxisGains, compute_weights
 
 DEFAULT_GAINS = dict.fromkeys(_GAIN_AXES, 1.0)
 
@@ -225,3 +228,58 @@ def test_captions_move_with_non_default_gains_not_just_at_the_baseline():
     moved = persona_weights("schools", {**DEFAULT_GAINS, "environment": 0.0})
 
     assert moved["schools"] != pytest.approx(baseline["schools"])
+
+
+# _reset_gains, like the existing _request_apply callback it mirrors, is a
+# real Streamlit on_click/on_change callback: it reads and writes
+# st.session_state directly rather than taking a mapping argument, which is
+# what lets Streamlit invoke it with no arguments of its own. st.session_state
+# works as a plain, persistent dict outside of a running app too, so it can
+# be driven directly here -- it's a global, so every test below clears it
+# first and last to avoid leaking state into other tests.
+@pytest.fixture(autouse=True)
+def _clean_session_state():
+    st.session_state.clear()
+    yield
+    st.session_state.clear()
+
+
+def test_reset_gains_restores_all_five_defaults_and_requests_an_apply():
+    for axis in _GAIN_AXES:
+        st.session_state[_shared_gain_key(axis)] = 1.8
+
+    _reset_gains()
+
+    assert current_gains(st.session_state) == DEFAULT_GAINS
+    assert st.session_state[_APPLY_KEY] is True
+
+
+def test_reset_gains_refreshes_the_active_personas_pending_weights():
+    st.session_state[_ACTIVE_KEY] = "schools"
+    for axis in _GAIN_AXES:
+        st.session_state[_shared_gain_key(axis)] = 1.8
+
+    _reset_gains()
+    weights = take_requested_weights(st.session_state)
+    if weights is not None:
+        st.session_state["pending_slider_weights"] = weights
+
+    assert st.session_state["pending_slider_weights"] == weights_to_slider_values(
+        compute_weights(EXTREME_PROFILES["schools"], AxisGains())
+    )
+
+
+def test_reset_gains_with_no_active_persona_is_a_harmless_no_op():
+    for axis in _GAIN_AXES:
+        st.session_state[_shared_gain_key(axis)] = 1.8
+
+    _reset_gains()
+    weights = take_requested_weights(st.session_state)
+
+    assert weights is None
+    assert "pending_slider_weights" not in st.session_state
+    assert current_gains(st.session_state) == DEFAULT_GAINS
+
+
+def test_reset_gains_default_matches_the_engines_axis_gains_default():
+    assert _GAIN_DEFAULT == AxisGains().age == 1.0

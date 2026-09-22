@@ -71,6 +71,25 @@ def _request_apply(*_args: object) -> None:
     st.session_state[_APPLY_KEY] = True
 
 
+def _reset_gains(*_args: object) -> None:
+    """Callback for the reset button: snaps all five shared gains back to
+    1.0 and requests a re-apply, so an already-active persona's displayed
+    weights immediately reflect the reset rather than looking stale until
+    some other control is touched.
+
+    Must run via on_click, not a plain post-render `if st.button(...):`
+    block: a callback runs and mutates session_state before the sliders
+    are re-instantiated on the rerun it triggers, which is the only safe
+    time to overwrite a widget's own session_state key. Doing this after
+    the sliders for the current run have already been created raises
+    StreamlitWidgetAlreadyInstantiatedError -- confirmed by trying the
+    naive version live before switching to on_click.
+    """
+    for axis in _GAIN_AXES:
+        st.session_state[_shared_gain_key(axis)] = _GAIN_DEFAULT
+    st.session_state[_APPLY_KEY] = True
+
+
 def current_gains(state: Mapping) -> dict[str, float]:
     """The five shared gain values as currently held in `state`, with the
     1.0 default for any not set yet."""
@@ -156,6 +175,11 @@ def render_persona_buttons() -> None:
             key=key,
             on_change=_request_apply,
         )
+    st.button(
+        "Reset gains to default",
+        key="persona_gain_reset",
+        on_click=_reset_gains,
+    )
 
     weights = take_requested_weights(st.session_state)
     if weights is not None:
